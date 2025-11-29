@@ -62,7 +62,7 @@ func GenerateTask() Task {
 
 // --- MAIN FUNCTIONS ---
 
-// Generates two different numbers 10–49
+// Generates two different numbers in the range 10-49.
 func genTwoUnique() (int, int) {
 	for {
 		a := rand.Intn(40) + 10
@@ -91,7 +91,7 @@ func reversedDigits(n int) string {
 	return fmt.Sprintf("%d%d", d2, d1)
 }
 
-// Generate a random unique options 10–49
+// Generate a random unique option in the range 10-49.
 func genUniqueRandom(existing []string) string {
 	exists := func(x string) bool {
 		for _, e := range existing {

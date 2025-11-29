@@ -33,6 +33,7 @@ import (
 	"github.com/umputun/tg-spam/app/storage"
 	"github.com/umputun/tg-spam/app/storage/engine"
 	"github.com/umputun/tg-spam/app/webapi"
+	"github.com/umputun/tg-spam/captcha"
 	"github.com/umputun/tg-spam/lib/tgspam"
 	"github.com/umputun/tg-spam/lib/tgspam/plugin"
 )
@@ -329,6 +330,9 @@ func execute(ctx context.Context, opts options) error {
 	}
 	tbAPI.Debug = opts.TGDbg
 
+	// initialize captcha handler before registering listeners
+	captchaHandler := captcha.NewHandler(tbAPI, 59*time.Second)
+
 	// make spam logger writer
 	loggerWr, err := makeSpamLogWriter(opts)
 	if err != nil {
@@ -360,6 +364,7 @@ func execute(ctx context.Context, opts options) error {
 		AdminGroup:          opts.AdminGroup,
 		TestingIDs:          opts.TestingIDs,
 		Locator:             locator,
+		CaptchaHandler:      captchaHandler,
 		ReportConfig: events.ReportConfig{
 			Storage:          reportsStore,
 			Enabled:          opts.Report.Enabled,
