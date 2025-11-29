@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/umputun/tg-spam/app/bot"
+	"github.com/umputun/tg-spam/captcha"
 	"github.com/umputun/tg-spam/lib/spamcheck"
 )
 
@@ -49,6 +50,8 @@ type TelegramListener struct {
 	Dry                     bool          // dry run, do not ban or send messages
 	AggressiveCleanup       bool          // delete all messages from user when banned via /spam command
 	AggressiveCleanupLimit  int           // max messages to delete in aggressive cleanup mode
+
+	CaptchaHandler *captcha.Handler // captcha module to verify new users
 
 	adminHandler   *admin
 	reportsHandler *userReports
@@ -165,6 +168,12 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 
 			// handle admin chat inline buttons - route based on callback prefix
 			if update.CallbackQuery != nil {
+				if l.CaptchaHandler != nil && l.chatID != 0 && update.CallbackQuery.Message != nil && update.CallbackQuery.Message.Chat.ID == l.chatID {
+					if handled := l.CaptchaHandler.OnCallback(update.CallbackQuery); handled {
+						continue
+					}
+				}
+
 				callbackData := update.CallbackQuery.Data
 
 				// delegate report callbacks (prefixes R+, R-, R?, R!, RX) to reportsHandler
@@ -208,6 +217,12 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 			}
 
 			if update.Message.NewChatMembers != nil {
+				if l.CaptchaHandler != nil && l.isChatAllowed(update.Message.Chat.ID) {
+					if err := l.CaptchaHandler.OnUserJoined(update.Message); err != nil {
+						log.Printf("[WARN] failed to process captcha for new chat member: %v", err)
+					}
+				}
+
 				// handle join messages with mutually exclusive logic to prevent double-deletion:
 				// - if DeleteJoinMessages=true: delete immediately, don't store in locator
 				// - if DeleteJoinMessages=false: store in locator for potential later deletion via SuppressJoinMessage
@@ -237,6 +252,12 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 					l.deleteSystemMessage(update.Message.MessageID, update.Message.Chat.ID, "leave")
 				}
 				continue
+			}
+
+			if l.CaptchaHandler != nil && l.chatID != 0 && update.Message.Chat.ID == l.chatID {
+				if handled := l.CaptchaHandler.OnMessage(update.Message); handled {
+					continue
+				}
 			}
 
 			// handle spam reports from superusers

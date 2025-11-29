@@ -5,18 +5,25 @@ import (
 	"strconv"
 	"time"
 
-	tele "gopkg.in/telebot.v3"
+	tbapi "github.com/OvyFlash/telegram-bot-api"
 )
+
+// BotAPI is a minimal interface required from telegram API client.
+// It matches *tbapi.BotAPI from github.com/OvyFlash/telegram-bot-api.
+type BotAPI interface {
+	Send(c tbapi.Chattable) (tbapi.Message, error)
+	Request(c tbapi.Chattable) (*tbapi.APIResponse, error)
+}
 
 // Handler encapsulates CAPTCHA logic and shared state manager.
 type Handler struct {
-	Bot     *tele.Bot     // telegram bot instance
+	Bot     BotAPI        // telegram bot instance
 	State   *Manager      // manager for active CAPTCHA states
 	Timeout time.Duration // lifetime for each CAPTCHA (59s)
 }
 
 // NewHandler creates a new CAPTCHA handler.
-func NewHandler(bot *tele.Bot, timeout time.Duration) *Handler {
+func NewHandler(bot BotAPI, timeout time.Duration) *Handler {
 	h := &Handler{
 		Bot:     bot,
 		State:   NewManager(),
@@ -25,62 +32,27 @@ func NewHandler(bot *tele.Bot, timeout time.Duration) *Handler {
 	return h
 }
 
-// RegisterRoutes attaches handlers to bot events. Call once from main.
-func (h *Handler) RegisterRoutes() {
-	// New user joined -> send captcha
-	h.Bot.Handle(tele.OnUserJoined, func(c tele.Context) error {
-		return h.onJoin(c)
-	})
-
-	// Delete messages from users who haven't solved captcha yet
-	h.Bot.Handle(tele.OnText, h.onMessage)
-	h.Bot.Handle(tele.OnPhoto, h.onMessage)
-	h.Bot.Handle(tele.OnDocument, h.onMessage)
-	h.Bot.Handle(tele.OnSticker, h.onMessage)
-	h.Bot.Handle(tele.OnVideo, h.onMessage)
-
-	// Handle inline button callbacks (answers)
-	h.Bot.Handle(&tele.Callback{}, func(c tele.Context) error {
-		return h.onCallback(c)
-	})
-}
-
-// ------------------------- JOIN FLOW -------------------------
-
-// onJoin is triggered when a new user joins the chat.
-// It:
-// - generates a captcha task
-// - sends the captcha message with inline buttons
-// - restricts the user (no send permissions)
-// - stores state with Attempts = 2 and Deadline = now + Timeout
-// - schedules an expiration check (timer) that will kick user after deadline
-func (h *Handler) onJoin(c tele.Context) error {
-	chat := c.Chat()
-	// For join event telebot may set Sender() to the joined user.
-	user := c.Sender()
-	if user == nil {
-		// fallback: try to get from message (rare)
-		if c.Message() != nil && len(c.Message().NewChatMembers) > 0 {
-			user = c.Message().NewChatMembers[0]
-		}
-		if user == nil {
-			return nil
-		}
+// OnUserJoined is triggered when a new user joins the chat.
+// It performs the following steps:
+//   - generates a captcha task and sends it with inline buttons
+//   - restricts the user (no send permissions)
+//   - stores state with Attempts = 2 and Deadline = now + Timeout
+//   - schedules an expiration check that will kick user after deadline
+func (h *Handler) OnUserJoined(msg *tbapi.Message) error {
+	if msg == nil || len(msg.NewChatMembers) == 0 {
+		return nil
 	}
+
+	user := msg.NewChatMembers[0]
 
 	// create task
 	task := GenerateTask()
 
 	// build inline keyboard from options
-	var buttons [][]tele.InlineButton
-	row := []tele.InlineButton{}
+	var buttons [][]tbapi.InlineKeyboardButton
+	row := []tbapi.InlineKeyboardButton{}
 	for _, opt := range task.Options {
-		// Use Unique to avoid collisions, Data to carry numeric answer
-		btn := tele.InlineButton{
-			Unique: "captcha_opt", // same unique is OK because we handle generic callbacks
-			Text:   opt,
-			Data:   opt,
-		}
+		btn := tbapi.NewInlineKeyboardButtonData(opt, opt)
 		row = append(row, btn)
 	}
 	buttons = append(buttons, row)
@@ -89,194 +61,150 @@ func (h *Handler) onJoin(c tele.Context) error {
 	msgText := fmt.Sprintf("👋 Welcome, %s!\n\nPlease solve this CAPTCHA to prove you are human:\n\n<b>%s</b>",
 		user.FirstName, task.Question)
 
-	msg, err := h.Bot.Send(
-		chat,
-		msgText,
-		&tele.SendOptions{
-			ParseMode: tele.ModeHTML,
-			ReplyMarkup: &tele.ReplyMarkup{
-				InlineKeyboard: buttons,
-			},
-		},
-	)
+	captchaMsg, err := h.Bot.Send(tbapi.MessageConfig{
+		BaseChat: tbapi.BaseChat{ChatConfig: tbapi.ChatConfig{ChatID: msg.Chat.ID}, ReplyMarkup: &tbapi.InlineKeyboardMarkup{
+			InlineKeyboard: buttons,
+		}},
+		Text:      msgText,
+		ParseMode: tbapi.ModeHTML,
+	})
 	if err != nil {
 		return err
 	}
 
 	// restrict user (no permissions) until they pass captcha
-	restrict := tele.ChatPermissions{} // empty => no send rights
-	_ = h.Bot.Restrict(chat, user, &restrict)
+	_, _ = h.Bot.Request(tbapi.RestrictChatMemberConfig{
+		ChatMemberConfig: tbapi.ChatMemberConfig{
+			ChatConfig: tbapi.ChatConfig{ChatID: msg.Chat.ID},
+			UserID:     user.ID,
+		},
+		Permissions: &tbapi.ChatPermissions{},
+	})
 
 	// store state with 2 attempts
 	h.State.Set(UserState{
-		ChatID:    chat.ID,
+		ChatID:    msg.Chat.ID,
 		UserID:    user.ID,
 		Answer:    task.Answer,
-		MessageID: msg.ID,
+		MessageID: captchaMsg.MessageID,
 		Deadline:  time.Now().Add(h.Timeout),
 		Attempts:  2,
 	})
 
-	// schedule expiration check: this goroutine checks actual Deadline before kicking,
-	// so if we refresh Deadline later this timer will do nothing.
+	// schedule expiration check
 	go func(uid int64) {
-		// wait for timeout duration, then verify current state
-		time.Sleep(h.Timeout + 1*time.Second) // small buffer
+		time.Sleep(h.Timeout + 1*time.Second)
 		st, ok := h.State.Get(uid)
 		if !ok {
 			return
 		}
-		// if deadline passed -> fail
 		if time.Now().After(st.Deadline) {
-			// fetch minimal user info to pass to failCaptcha
-			userObj := &tele.User{ID: int(st.UserID)}
-			h.failCaptcha(st, userObj, "⏳ CAPTCHA expired — user removed. If you are human, try joining again.")
+			h.failCaptcha(st, user.FirstName, "⏳ CAPTCHA expired — user removed. If you are human, try joining again.")
 		}
 	}(user.ID)
 
 	return nil
 }
 
-// ------------------------- MESSAGE DELETION -------------------------
-
-// onMessage deletes any messages from users who have an active captcha.
-func (h *Handler) onMessage(c tele.Context) error {
-	user := c.Sender()
-	if user == nil {
-		return nil
+// OnMessage deletes any messages from users who have an active captcha.
+// Returns true if the message was handled (deleted) and should not be processed further.
+func (h *Handler) OnMessage(msg *tbapi.Message) bool {
+	if msg == nil || msg.From == nil {
+		return false
 	}
-	_, has := h.State.Get(user.ID)
+	_, has := h.State.Get(msg.From.ID)
 	if has {
-		// delete the message (suppress spam while in restricted state)
-		_ = h.Bot.Delete(c.Message())
+		_, _ = h.Bot.Request(tbapi.DeleteMessageConfig{ // best-effort
+			BaseChatMessage: tbapi.BaseChatMessage{ChatConfig: tbapi.ChatConfig{ChatID: msg.Chat.ID}, MessageID: msg.MessageID},
+		})
+		return true
 	}
-	return nil
+	return false
 }
 
-// ------------------------- CALLBACK HANDLING -------------------------
-
-// onCallback processes pressed inline button answers.
-// Logic:
-// - check that callback comes from the challenged user
-// - parse answer
-// - if correct -> passCaptcha
-// - if incorrect and Attempts > 1 -> generate new captcha, Attempts--, reset Deadline (59s), replace message (delete old)
-// - if incorrect and Attempts == 1 -> failCaptcha (kick)
-func (h *Handler) onCallback(c tele.Context) error {
-	cb := c.Callback()
-	if cb == nil {
-		return nil
-	}
-	user := c.Sender()
-	if user == nil {
-		return c.Respond(&tele.CallbackResponse{Text: "Invalid user."})
+// OnCallback processes pressed inline button answers.
+// Returns true if the callback was processed by CAPTCHA module.
+func (h *Handler) OnCallback(query *tbapi.CallbackQuery) bool {
+	if query == nil || query.From == nil || query.Message == nil {
+		return false
 	}
 
-	// get current state
-	st, ok := h.State.Get(user.ID)
+	st, ok := h.State.Get(query.From.ID)
 	if !ok {
-		return c.Respond(&tele.CallbackResponse{Text: "This CAPTCHA is no longer active.", ShowAlert: false})
+		return false
 	}
 
 	// ensure this callback is for the same chat / message and for the same user
-	// only challenged user may answer
-	if st.MessageID != cb.Message.ID || st.ChatID != cb.Message.Chat.ID {
-		// someone else clicked the button
-		return c.Respond(&tele.CallbackResponse{Text: "This CAPTCHA is not for you.", ShowAlert: true})
+	if st.MessageID != query.Message.MessageID || st.ChatID != query.Message.Chat.ID {
+		h.answerCallback(query.ID, "This CAPTCHA is not for you.", true)
+		return true
 	}
 
-	// parse pressed value
-	ans, err := strconv.Atoi(cb.Data)
+	ans, err := strconv.Atoi(query.Data)
 	if err != nil {
-		// not a number — ignore
-		_ = c.Respond()
-		return nil
+		h.answerCallback(query.ID, "Invalid answer.", false)
+		return true
 	}
 
-	// check deadline
 	if time.Now().After(st.Deadline) {
-		// expired - remove
-		h.State.Delete(user.ID)
-		_ = c.Respond(&tele.CallbackResponse{Text: "CAPTCHA expired."})
-		h.failCaptcha(st, &tele.User{ID: int(st.UserID)}, "⏳ CAPTCHA expired — user removed. If you are human, try joining again.")
-		return nil
+		h.State.Delete(query.From.ID)
+		h.answerCallback(query.ID, "CAPTCHA expired.", false)
+		h.failCaptcha(st, query.From.FirstName, "⏳ CAPTCHA expired — user removed. If you are human, try joining again.")
+		return true
 	}
 
-	// correct answer
 	if ans == st.Answer {
-		// acknowledge callback (silent)
-		_ = c.Respond(&tele.CallbackResponse{Text: "Correct!"})
-		h.passCaptcha(st, &tele.User{ID: int(st.UserID)})
-		return nil
+		h.answerCallback(query.ID, "Correct!", false)
+		h.passCaptcha(st, query.From.FirstName)
+		return true
 	}
 
-	// wrong answer
-	// decrement attempts (we stored initial Attempts == 2)
 	if st.Attempts <= 1 {
-		// final attempt used -> fail
-		_ = c.Respond(&tele.CallbackResponse{Text: "Wrong. No attempts left."})
-		h.failCaptcha(st, &tele.User{ID: int(st.UserID)}, "❌ CAPTCHA failed twice — user removed. If you are human, try joining again.")
-		return nil
+		h.answerCallback(query.ID, "Wrong. No attempts left.", false)
+		h.failCaptcha(st, query.From.FirstName, "❌ CAPTCHA failed twice — user removed. If you are human, try joining again.")
+		return true
 	}
 
-	// st.Attempts >= 2 -> first wrong answer case:
-	// generate a NEW captcha, decrement attempts, update state, delete old captcha message,
-	// send new captcha message and notify user that this is last attempt.
-
-	// decrease attempts
+	// first wrong answer, regenerate captcha
 	newAttempts := st.Attempts - 1
 
-	// delete old captcha message (best-effort)
-	_ = h.Bot.Delete(&tele.Message{ID: st.MessageID, Chat: &tele.Chat{ID: st.ChatID}})
+	// delete old captcha message
+	_, _ = h.Bot.Request(tbapi.DeleteMessageConfig{BaseChatMessage: tbapi.BaseChatMessage{ChatConfig: tbapi.ChatConfig{ChatID: st.ChatID}, MessageID: st.MessageID}})
 
-	// create new task
 	task := GenerateTask()
 
-	// build keyboard
-	var buttons [][]tele.InlineButton
-	row := []tele.InlineButton{}
+	var buttons [][]tbapi.InlineKeyboardButton
+	row := []tbapi.InlineKeyboardButton{}
 	for _, opt := range task.Options {
-		btn := tele.InlineButton{
-			Unique: "captcha_opt",
-			Text:   opt,
-			Data:   opt,
-		}
+		btn := tbapi.NewInlineKeyboardButtonData(opt, opt)
 		row = append(row, btn)
 	}
 	buttons = append(buttons, row)
 
-	// send new captcha; include last-attempt warning
 	newMsgText := fmt.Sprintf("⚠ %s, this is your <b>last attempt</b>.\n\nPlease solve:\n\n<b>%s</b>",
-		user.FirstName, task.Question)
+		query.From.FirstName, task.Question)
 
-	newMsg, err := h.Bot.Send(
-		&tele.Chat{ID: st.ChatID},
-		newMsgText,
-		&tele.SendOptions{
-			ParseMode: tele.ModeHTML,
-			ReplyMarkup: &tele.ReplyMarkup{
-				InlineKeyboard: buttons,
-			},
-		},
-	)
+	newMsg, err := h.Bot.Send(tbapi.MessageConfig{
+		BaseChat: tbapi.BaseChat{ChatConfig: tbapi.ChatConfig{ChatID: st.ChatID}, ReplyMarkup: &tbapi.InlineKeyboardMarkup{
+			InlineKeyboard: buttons,
+		}},
+		Text:      newMsgText,
+		ParseMode: tbapi.ModeHTML,
+	})
 	if err != nil {
-		// if we cannot send new message, fail safe by kicking user
-		h.failCaptcha(st, &tele.User{ID: int(st.UserID)}, "❌ Error sending CAPTCHA — user removed.")
-		return nil
+		h.failCaptcha(st, query.From.FirstName, "❌ Error sending CAPTCHA — user removed.")
+		return true
 	}
 
-	// update stored state: new answer, new message id, new deadline, decreased attempts
-	newState := UserState{
+	h.State.Set(UserState{
 		ChatID:    st.ChatID,
 		UserID:    st.UserID,
 		Answer:    task.Answer,
-		MessageID: newMsg.ID,
+		MessageID: newMsg.MessageID,
 		Deadline:  time.Now().Add(h.Timeout),
 		Attempts:  newAttempts,
-	}
-	h.State.Set(newState)
+	})
 
-	// schedule a new expiration checker for this user (previous timers check Deadline so are harmless)
 	go func(uid int64) {
 		time.Sleep(h.Timeout + 1*time.Second)
 		cur, ok := h.State.Get(uid)
@@ -284,60 +212,58 @@ func (h *Handler) onCallback(c tele.Context) error {
 			return
 		}
 		if time.Now().After(cur.Deadline) {
-			h.failCaptcha(cur, &tele.User{ID: int(cur.UserID)}, "⏳ CAPTCHA expired — user removed. If you are human, try joining again.")
+			h.failCaptcha(cur, query.From.FirstName, "⏳ CAPTCHA expired — user removed. If you are human, try joining again.")
 		}
 	}(st.UserID)
 
-	// respond to callback (small popup)
-	_ = c.Respond(&tele.CallbackResponse{Text: "Wrong answer. New CAPTCHA sent. This is your last attempt.", ShowAlert: false})
+	h.answerCallback(query.ID, "Wrong answer. New CAPTCHA sent. This is your last attempt.", false)
 
-	return nil
+	return true
 }
 
-// ------------------------- PASS / FAIL HELPERS -------------------------
+func (h *Handler) answerCallback(id, text string, alert bool) {
+	_, _ = h.Bot.Request(tbapi.CallbackConfig{CallbackQueryID: id, Text: text, ShowAlert: alert})
+}
 
 // passCaptcha is called when a user successfully solves the CAPTCHA.
-// It:
-// - restores send permissions
-// - deletes the captcha message
-// - removes state
-// - optionally notifies the chat
-func (h *Handler) passCaptcha(st UserState, user *tele.User) {
-	chat := &tele.Chat{ID: st.ChatID}
+// It restores permissions, deletes captcha message, removes state and notifies chat.
+func (h *Handler) passCaptcha(st UserState, firstName string) {
+	chatID := st.ChatID
 
-	// allow normal permissions
-	allow := tele.ChatPermissions{
-		CanSendMessages: true,
-		CanSendMedia:    true,
-		CanSendOther:    true,
-		CanAddPreviews:  true,
-	}
-	_ = h.Bot.Restrict(chat, user, &allow)
+	_, _ = h.Bot.Request(tbapi.RestrictChatMemberConfig{
+		ChatMemberConfig: tbapi.ChatMemberConfig{ChatConfig: tbapi.ChatConfig{ChatID: chatID}, UserID: st.UserID},
+		Permissions: &tbapi.ChatPermissions{
+			CanSendMessages:       true,
+			CanSendAudios:         true,
+			CanSendDocuments:      true,
+			CanSendPhotos:         true,
+			CanSendVideos:         true,
+			CanSendVideoNotes:     true,
+			CanSendVoiceNotes:     true,
+			CanSendOtherMessages:  true,
+			CanAddWebPagePreviews: true,
+		},
+	})
 
-	// delete captcha message (best-effort)
-	_ = h.Bot.Delete(&tele.Message{ID: st.MessageID, Chat: chat})
+	_, _ = h.Bot.Request(tbapi.DeleteMessageConfig{BaseChatMessage: tbapi.BaseChatMessage{ChatConfig: tbapi.ChatConfig{ChatID: chatID}, MessageID: st.MessageID}})
 
-	// remove internal state
-	h.State.Delete(user.ID)
+	h.State.Delete(st.UserID)
 
-	// optional friendly message
-	_, _ = h.Bot.Send(chat, fmt.Sprintf("✅ %s passed the CAPTCHA.", user.FirstName))
+	_, _ = h.Bot.Send(tbapi.NewMessage(chatID, fmt.Sprintf("✅ %s passed the CAPTCHA.", firstName)))
 }
 
 // failCaptcha removes the user from the chat and cleans state.
-// reason is sent to chat for transparency.
-func (h *Handler) failCaptcha(st UserState, user *tele.User, reason string) {
-	chat := &tele.Chat{ID: st.ChatID}
+func (h *Handler) failCaptcha(st UserState, firstName, reason string) {
+	chatID := st.ChatID
 
-	// delete captcha message if exists
-	_ = h.Bot.Delete(&tele.Message{ID: st.MessageID, Chat: chat})
+	_, _ = h.Bot.Request(tbapi.DeleteMessageConfig{BaseChatMessage: tbapi.BaseChatMessage{ChatConfig: tbapi.ChatConfig{ChatID: chatID}, MessageID: st.MessageID}})
 
-	// delete state
-	h.State.Delete(user.ID)
+	h.State.Delete(st.UserID)
 
-	// ban (kick) the user
-	_ = h.Bot.Ban(chat, user)
+	_, _ = h.Bot.Request(tbapi.BanChatMemberConfig{
+		ChatMemberConfig: tbapi.ChatMemberConfig{ChatConfig: tbapi.ChatConfig{ChatID: chatID}, UserID: st.UserID},
+		RevokeMessages:   true,
+	})
 
-	// notify chat with human-friendly text
-	_, _ = h.Bot.Send(chat, reason)
+	_, _ = h.Bot.Send(tbapi.NewMessage(chatID, reason))
 }
