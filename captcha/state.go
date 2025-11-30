@@ -99,6 +99,8 @@ func (mgr *Manager) Update(chatID, userID int64, updateFn func(*UserState)) bool
 	return true
 }
 
+// stateKey stores the full 64-bit chat and user IDs to avoid collisions
+// between chats that share the same lower bits (e.g., large Telegram IDs).
 type stateKey struct {
 	chatID int64
 	userID int64
