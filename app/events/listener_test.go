@@ -1843,7 +1843,8 @@ func TestTelegramListener_isChatAllowed(t *testing.T) {
 				chatID:     tc.chatID,
 				TestingIDs: tc.testingIDs,
 			}
-			result := listener.isChatAllowed(tc.fromChat)
+			chat := tbapi.Chat{ID: tc.fromChat}
+			result := listener.isChatAllowed(&chat)
 			assert.Equal(t, tc.expect, result)
 		})
 	}

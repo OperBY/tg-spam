@@ -253,8 +253,8 @@ func execute(ctx context.Context, opts options) error {
 	}
 
 	convertOnly := opts.Convert == "only"
-	if !opts.Server.Enabled && !convertOnly && (opts.Telegram.Token == "" || opts.Telegram.Group == "") {
-		return errors.New("telegram token and group are required")
+	if !opts.Server.Enabled && !convertOnly && opts.Telegram.Token == "" {
+		return errors.New("telegram token is required")
 	}
 
 	checkVolumeMount(opts) // show warning if dynamic files dir not mounted
@@ -346,11 +346,18 @@ func execute(ctx context.Context, opts options) error {
 		return fmt.Errorf("can't make spam logger, %w", err)
 	}
 
+	allowedChats := splitAndClean(opts.Telegram.Group)
+	primaryGroup := ""
+	if len(allowedChats) > 0 {
+		primaryGroup = allowedChats[0]
+	}
+
 	// make telegram listener
 	tgListener := events.TelegramListener{
 		TbAPI:               tbAPI,
 		BotUsername:         tbAPI.Self.UserName,
-		Group:               opts.Telegram.Group,
+		Group:               primaryGroup,
+		AllowedChats:        allowedChats,
 		IdleDuration:        opts.Telegram.IdleDuration,
 		SuperUsers:          opts.SuperUsers,
 		Bot:                 spamBot,
@@ -398,6 +405,22 @@ func execute(ctx context.Context, opts options) error {
 		return fmt.Errorf("telegram listener failed, %w", err)
 	}
 	return nil
+}
+
+func splitAndClean(groups string) []string {
+	parts := strings.Split(groups, ",")
+	res := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		clean := strings.TrimSpace(part)
+		clean = strings.TrimPrefix(clean, "@")
+		if clean == "" {
+			continue
+		}
+		res = append(res, clean)
+	}
+
+	return res
 }
 
 // makeDB creates database connection based on options
