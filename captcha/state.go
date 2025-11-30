@@ -33,14 +33,14 @@ func NewManager() *Manager {
 func (mgr *Manager) Set(state UserState) {
 	mgr.mux.Lock()
 	defer mgr.mux.Unlock()
-	mgr.m[stateKey(state.ChatID, state.UserID)] = state
+	mgr.m[newStateKey(state.ChatID, state.UserID)] = state
 }
 
 // Get retrieves a user's CAPTCHA state if it exists.
 func (mgr *Manager) Get(chatID, userID int64) (UserState, bool) {
 	mgr.mux.RLock()
 	defer mgr.mux.RUnlock()
-	st, ok := mgr.m[stateKey(chatID, userID)]
+	st, ok := mgr.m[newStateKey(chatID, userID)]
 	return st, ok
 }
 
@@ -48,7 +48,7 @@ func (mgr *Manager) Get(chatID, userID int64) (UserState, bool) {
 func (mgr *Manager) Delete(chatID, userID int64) {
 	mgr.mux.Lock()
 	defer mgr.mux.Unlock()
-	delete(mgr.m, stateKey(chatID, userID))
+	delete(mgr.m, newStateKey(chatID, userID))
 }
 
 // Check verifies if the user has provided the correct answer.
@@ -57,7 +57,7 @@ func (mgr *Manager) Check(chatID, userID int64, answer int) bool {
 	mgr.mux.RLock()
 	defer mgr.mux.RUnlock()
 
-	st, ok := mgr.m[stateKey(chatID, userID)]
+	st, ok := mgr.m[newStateKey(chatID, userID)]
 	if !ok {
 		return false
 	}
@@ -75,7 +75,7 @@ func (mgr *Manager) Expired(chatID, userID int64) bool {
 	mgr.mux.RLock()
 	defer mgr.mux.RUnlock()
 
-	st, ok := mgr.m[stateKey(chatID, userID)]
+	st, ok := mgr.m[newStateKey(chatID, userID)]
 	if !ok {
 		return true
 	}
@@ -89,13 +89,13 @@ func (mgr *Manager) Update(chatID, userID int64, updateFn func(*UserState)) bool
 	mgr.mux.Lock()
 	defer mgr.mux.Unlock()
 
-	st, ok := mgr.m[stateKey(chatID, userID)]
+	st, ok := mgr.m[newStateKey(chatID, userID)]
 	if !ok {
 		return false
 	}
 
 	updateFn(&st)
-	mgr.m[stateKey(chatID, userID)] = st
+	mgr.m[newStateKey(chatID, userID)] = st
 	return true
 }
 
@@ -106,6 +106,6 @@ type stateKey struct {
 	userID int64
 }
 
-func stateKey(chatID, userID int64) stateKey {
+func newStateKey(chatID, userID int64) stateKey {
 	return stateKey{chatID: chatID, userID: userID}
 }
