@@ -175,7 +175,7 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 
 			// handle admin chat inline buttons - route based on callback prefix
 			if update.CallbackQuery != nil {
-				if l.CaptchaHandler != nil && update.CallbackQuery.Message != nil && l.isChatAllowed(update.CallbackQuery.Message.Chat) {
+				if l.CaptchaHandler != nil && update.CallbackQuery.Message != nil && l.isChatAllowed(&update.CallbackQuery.Message.Chat) {
 					if handled := l.CaptchaHandler.OnCallback(update.CallbackQuery); handled {
 						continue
 					}
@@ -224,7 +224,7 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 			}
 
 			if update.Message.NewChatMembers != nil {
-				if l.CaptchaHandler != nil && l.isChatAllowed(update.Message.Chat) {
+				if l.CaptchaHandler != nil && l.isChatAllowed(&update.Message.Chat) {
 					if err := l.CaptchaHandler.OnUserJoined(update.Message); err != nil {
 						log.Printf("[WARN] failed to process captcha for new chat member: %v", err)
 					}
@@ -261,7 +261,7 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 				continue
 			}
 
-			if l.CaptchaHandler != nil && l.isChatAllowed(update.Message.Chat) {
+			if l.CaptchaHandler != nil && l.isChatAllowed(&update.Message.Chat) {
 				if handled := l.CaptchaHandler.OnMessage(update.Message); handled {
 					continue
 				}
@@ -321,7 +321,7 @@ func (l *TelegramListener) procEvents(update tbapi.Update) error {
 	}
 	fromChat := update.Message.Chat.ID
 	// ignore messages from other chats except allowed ones and testing list
-	if !l.isChatAllowed(update.Message.Chat) {
+	if !l.isChatAllowed(&update.Message.Chat) {
 		return nil
 	}
 
@@ -489,7 +489,7 @@ func (l *TelegramListener) procUserReply(ctx context.Context, update tbapi.Updat
 func (l *TelegramListener) procNewChatMemberMessage(update tbapi.Update) error {
 	fromChat := update.Message.Chat.ID
 	// ignore messages from other chats except allowed ones and testing list
-	if !l.isChatAllowed(update.Message.Chat) {
+	if !l.isChatAllowed(&update.Message.Chat) {
 		return nil
 	}
 
@@ -516,7 +516,7 @@ func (l *TelegramListener) procNewChatMemberMessage(update tbapi.Update) error {
 func (l *TelegramListener) procLeftChatMemberMessage(update tbapi.Update) error {
 	fromChat := update.Message.Chat.ID
 	// ignore messages from other chats except allowed ones and testing list
-	if !l.isChatAllowed(update.Message.Chat) {
+	if !l.isChatAllowed(&update.Message.Chat) {
 		return nil
 	}
 
