@@ -52,11 +52,13 @@ type TelegramListener struct {
 	AggressiveCleanupLimit  int           // max messages to delete in aggressive cleanup mode
 
 	CaptchaHandler *captcha.Handler // captcha module to verify new users
+	AllowedChats   []string         // list of allowed chats (usernames or IDs), empty means all allowed
 
 	adminHandler   *admin
 	reportsHandler *userReports
 	chatID         int64
 	adminChatID    int64
+	allowedChats   map[string]struct{}
 
 	msgs struct {
 		once sync.Once
@@ -67,6 +69,7 @@ type TelegramListener struct {
 // Do process all events, blocked call
 func (l *TelegramListener) Do(ctx context.Context) error {
 	log.Printf("[INFO] start telegram listener for %q", l.Group)
+	l.prepareAllowedChats()
 
 	if l.TrainingMode {
 		log.Printf("[WARN] training mode, no bans")
@@ -76,15 +79,19 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 		log.Printf("[INFO] soft ban mode, no bans but restrictions")
 	}
 
-	// get chat ID for the group we are monitoring
+	// get chat ID for the group we are monitoring (if any configured)
 	var getChatErr error
-	if l.chatID, getChatErr = l.getChatID(l.Group); getChatErr != nil {
-		return fmt.Errorf("failed to get chat ID for group %q: %w", l.Group, getChatErr)
+	if l.Group != "" {
+		if l.chatID, getChatErr = l.getChatID(l.Group); getChatErr != nil {
+			return fmt.Errorf("failed to get chat ID for group %q: %w", l.Group, getChatErr)
+		}
+		log.Printf("[INFO] primary chat ID: %d", l.chatID)
 	}
-	log.Printf("[INFO] primary chat ID: %d", l.chatID)
 
-	if err := l.updateSupers(); err != nil {
-		log.Printf("[WARN] failed to update superusers: %v", err)
+	if l.chatID != 0 {
+		if err := l.updateSupers(); err != nil {
+			log.Printf("[WARN] failed to update superusers: %v", err)
+		}
 	}
 
 	if l.AdminGroup != "" {
@@ -103,7 +110,7 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 	})
 
 	// send startup message if any set
-	if l.StartupMsg != "" && !l.TrainingMode && !l.Dry {
+	if l.StartupMsg != "" && !l.TrainingMode && !l.Dry && l.chatID != 0 {
 		if err := l.sendBotResponse(bot.Response{Send: true, Text: l.StartupMsg}, l.chatID, NotificationSilent); err != nil {
 			log.Printf("[WARN] failed to send startup message, %v", err)
 		} else {
@@ -168,7 +175,7 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 
 			// handle admin chat inline buttons - route based on callback prefix
 			if update.CallbackQuery != nil {
-				if l.CaptchaHandler != nil && l.chatID != 0 && update.CallbackQuery.Message != nil && update.CallbackQuery.Message.Chat.ID == l.chatID {
+				if l.CaptchaHandler != nil && update.CallbackQuery.Message != nil && l.isChatAllowed(update.CallbackQuery.Message.Chat) {
 					if handled := l.CaptchaHandler.OnCallback(update.CallbackQuery); handled {
 						continue
 					}
@@ -217,7 +224,7 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 			}
 
 			if update.Message.NewChatMembers != nil {
-				if l.CaptchaHandler != nil && l.isChatAllowed(update.Message.Chat.ID) {
+				if l.CaptchaHandler != nil && l.isChatAllowed(update.Message.Chat) {
 					if err := l.CaptchaHandler.OnUserJoined(update.Message); err != nil {
 						log.Printf("[WARN] failed to process captcha for new chat member: %v", err)
 					}
@@ -254,7 +261,7 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 				continue
 			}
 
-			if l.CaptchaHandler != nil && l.chatID != 0 && update.Message.Chat.ID == l.chatID {
+			if l.CaptchaHandler != nil && l.isChatAllowed(update.Message.Chat) {
 				if handled := l.CaptchaHandler.OnMessage(update.Message); handled {
 					continue
 				}
@@ -297,9 +304,11 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 			}
 
 		case <-time.After(l.IdleDuration): // hit bots on idle timeout
-			resp := l.Bot.OnMessage(bot.Message{Text: "idle"}, false)
-			if err := l.sendBotResponse(resp, l.chatID, NotificationSilent); err != nil {
-				log.Printf("[WARN] failed to respond on idle, %v", err)
+			if l.chatID != 0 {
+				resp := l.Bot.OnMessage(bot.Message{Text: "idle"}, false)
+				if err := l.sendBotResponse(resp, l.chatID, NotificationSilent); err != nil {
+					log.Printf("[WARN] failed to respond on idle, %v", err)
+				}
 			}
 		}
 	}
@@ -311,8 +320,8 @@ func (l *TelegramListener) procEvents(update tbapi.Update) error {
 		return fmt.Errorf("failed to marshal update.Message to json: %w", errJSON)
 	}
 	fromChat := update.Message.Chat.ID
-	// ignore messages from other chats except the one we are monitor and ones from the test list
-	if !l.isChatAllowed(fromChat) {
+	// ignore messages from other chats except allowed ones and testing list
+	if !l.isChatAllowed(update.Message.Chat) {
 		return nil
 	}
 
@@ -385,7 +394,7 @@ func (l *TelegramListener) procEvents(update tbapi.Update) error {
 	if resp.DeleteReplyTo && resp.ReplyTo != 0 && !l.Dry && !l.SuperUsers.IsSuper(msg.From.Username, msg.From.ID) && !l.TrainingMode {
 		if _, err := l.TbAPI.Request(tbapi.DeleteMessageConfig{BaseChatMessage: tbapi.BaseChatMessage{
 			MessageID:  resp.ReplyTo,
-			ChatConfig: tbapi.ChatConfig{ChatID: l.chatID},
+			ChatConfig: tbapi.ChatConfig{ChatID: fromChat},
 		}}); err != nil {
 			errs = multierror.Append(errs, fmt.Errorf("failed to delete message %d: %w", resp.ReplyTo, err))
 		}
@@ -479,8 +488,8 @@ func (l *TelegramListener) procUserReply(ctx context.Context, update tbapi.Updat
 // procNewChatMemberMessage saves new chat member message to locator. It is used to delete the message if the user kicked out
 func (l *TelegramListener) procNewChatMemberMessage(update tbapi.Update) error {
 	fromChat := update.Message.Chat.ID
-	// ignore messages from other chats except the one we are monitor and ones from the test list
-	if !l.isChatAllowed(fromChat) {
+	// ignore messages from other chats except allowed ones and testing list
+	if !l.isChatAllowed(update.Message.Chat) {
 		return nil
 	}
 
@@ -506,8 +515,8 @@ func (l *TelegramListener) procNewChatMemberMessage(update tbapi.Update) error {
 // procLeftChatMemberMessage deletes the message about new chat member if the user kicked out
 func (l *TelegramListener) procLeftChatMemberMessage(update tbapi.Update) error {
 	fromChat := update.Message.Chat.ID
-	// ignore messages from other chats except the one we are monitor and ones from the test list
-	if !l.isChatAllowed(fromChat) {
+	// ignore messages from other chats except allowed ones and testing list
+	if !l.isChatAllowed(update.Message.Chat) {
 		return nil
 	}
 
@@ -544,16 +553,50 @@ func (l *TelegramListener) deleteSystemMessage(msgID int, chatID int64, msgType 
 	}
 }
 
-func (l *TelegramListener) isChatAllowed(fromChat int64) bool {
-	if fromChat == l.chatID {
-		return true
+func (l *TelegramListener) prepareAllowedChats() {
+	if l.allowedChats != nil {
+		return
 	}
+
+	l.allowedChats = make(map[string]struct{})
+	for _, chat := range l.AllowedChats {
+		clean := strings.TrimSpace(chat)
+		clean = strings.TrimPrefix(clean, "@")
+		if clean == "" {
+			continue
+		}
+		clean = strings.ToLower(clean)
+		l.allowedChats[clean] = struct{}{}
+	}
+}
+
+func (l *TelegramListener) isChatAllowed(chat *tbapi.Chat) bool {
+	if chat == nil {
+		return false
+	}
+
 	for _, id := range l.TestingIDs {
-		if id == fromChat {
+		if id == chat.ID {
 			return true
 		}
 	}
-	return false
+
+	if len(l.allowedChats) == 0 {
+		return true
+	}
+
+	username := strings.TrimPrefix(chat.UserName, "@")
+	username = strings.ToLower(username)
+	idStr := strconv.FormatInt(chat.ID, 10)
+
+	if username != "" {
+		if _, ok := l.allowedChats[username]; ok {
+			return true
+		}
+	}
+
+	_, ok := l.allowedChats[idStr]
+	return ok
 }
 
 func (l *TelegramListener) isAdminChat(fromChat int64, from string, fromID int64) bool {
