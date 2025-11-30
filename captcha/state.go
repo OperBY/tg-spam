@@ -18,14 +18,14 @@ type UserState struct {
 
 // Manager safely stores CAPTCHA state for all currently challenged users.
 type Manager struct {
-	m   map[uint64]UserState // Key: stateKey(chatID, userID) → state
+	m   map[stateKey]UserState // Key: stateKey(chatID, userID) → state
 	mux sync.RWMutex
 }
 
 // NewManager creates a fresh manager with no active states.
 func NewManager() *Manager {
 	return &Manager{
-		m: make(map[uint64]UserState),
+		m: make(map[stateKey]UserState),
 	}
 }
 
@@ -99,6 +99,11 @@ func (mgr *Manager) Update(chatID, userID int64, updateFn func(*UserState)) bool
 	return true
 }
 
-func stateKey(chatID, userID int64) uint64 {
-	return (uint64(chatID) << 32) | uint64(userID)
+type stateKey struct {
+	chatID int64
+	userID int64
+}
+
+func stateKey(chatID, userID int64) stateKey {
+	return stateKey{chatID: chatID, userID: userID}
 }
