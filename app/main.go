@@ -43,7 +43,7 @@ type options struct {
 
 	Telegram struct {
 		Token        string        `long:"token" env:"TOKEN" description:"telegram bot token"`
-		Group        string        `long:"group" env:"GROUP" description:"group name/id"`
+		Group        []string      `long:"group" env:"GROUP" env-delim:"," description:"group name/id (can be comma-separated list)"`
 		Timeout      time.Duration `long:"timeout" env:"TIMEOUT" default:"30s" description:"http client timeout for telegram" `
 		IdleDuration time.Duration `long:"idle" env:"IDLE" default:"30s" description:"idle duration"`
 	} `group:"telegram" namespace:"telegram" env-namespace:"TELEGRAM"`
@@ -252,8 +252,8 @@ func execute(ctx context.Context, opts options) error {
 	}
 
 	convertOnly := opts.Convert == "only"
-	if !opts.Server.Enabled && !convertOnly && (opts.Telegram.Token == "" || opts.Telegram.Group == "") {
-		return errors.New("telegram token and group are required")
+	if !opts.Server.Enabled && !convertOnly && opts.Telegram.Token == "" {
+		return errors.New("telegram token is required")
 	}
 
 	checkVolumeMount(opts) // show warning if dynamic files dir not mounted
@@ -314,8 +314,8 @@ func execute(ctx context.Context, opts options) error {
 		if srvErr := activateServer(ctx, opts, spamBot, locator, dataDB); srvErr != nil {
 			return fmt.Errorf("can't activate web server, %w", srvErr)
 		}
-		// if no telegram token and group set, just run the server
-		if opts.Telegram.Token == "" || opts.Telegram.Group == "" {
+		// if no telegram token set, just run the server
+		if opts.Telegram.Token == "" {
 			log.Printf("[WARN] no telegram token and group set, web server only mode")
 			<-ctx.Done()
 			return nil
@@ -383,7 +383,7 @@ func execute(ctx context.Context, opts options) error {
 		log.Print("[INFO] delete leave messages enabled")
 	}
 
-	log.Printf("[DEBUG] telegram listener config: {bot: %s, group: %s, idle: %v, super: %v, admin: %s, testing: %v, no-reply: %v,"+
+	log.Printf("[DEBUG] telegram listener config: {bot: %s, group: %v, idle: %v, super: %v, admin: %s, testing: %v, no-reply: %v,"+
 		" suppress: %v, dry: %v, training: %v}", tgListener.BotUsername, tgListener.Group, tgListener.IdleDuration, tgListener.SuperUsers,
 		tgListener.AdminGroup, tgListener.TestingIDs, tgListener.NoSpamReply, tgListener.SuppressJoinMessage, tgListener.Dry,
 		tgListener.TrainingMode)
@@ -500,7 +500,7 @@ func activateServer(ctx context.Context, opts options, sf *bot.SpamFilter, loc *
 
 	settings := webapi.Settings{
 		InstanceID:               opts.InstanceID,
-		PrimaryGroup:             opts.Telegram.Group,
+		PrimaryGroup:             strings.Join(opts.Telegram.Group, ","),
 		AdminGroup:               opts.AdminGroup,
 		DisableAdminSpamForward:  opts.DisableAdminSpamForward,
 		LoggerEnabled:            opts.Logger.Enabled,

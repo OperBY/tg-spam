@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/umputun/tg-spam/app/bot"
+	"github.com/umputun/tg-spam/app/events/captcha"
 	"github.com/umputun/tg-spam/lib/spamcheck"
 )
 
@@ -30,7 +31,7 @@ type TelegramListener struct {
 	SpamLogger              SpamLogger    // logger to save spam to files and db
 	Bot                     Bot           // bot to handle messages
 	BotUsername             string        // telegram bot username (without "@" prefix)
-	Group                   string        // can be int64 or public group username (without "@" prefix)
+	Group                   []string      // can be int64 or public group username (without "@" prefix), may contain multiple entries
 	AdminGroup              string        // can be int64 or public group username (without "@" prefix)
 	IdleDuration            time.Duration // idle timeout to send "idle" message to bots
 	SuperUsers              SuperUsers    // list of superusers, can ban and report spam, can't be banned
@@ -50,15 +51,28 @@ type TelegramListener struct {
 	AggressiveCleanup       bool          // delete all messages from user when banned via /spam command
 	AggressiveCleanupLimit  int           // max messages to delete in aggressive cleanup mode
 
+	CaptchaManager *captcha.Manager
+
+	captchaMessages map[captchaKey]int
+	captchaUsers    map[captchaKey]string
+	captchaMu       sync.Mutex
+
 	adminHandler   *admin
 	reportsHandler *userReports
 	chatID         int64
+	allowedChatIDs map[int64]struct{}
+	allowAllChats  bool
 	adminChatID    int64
 
 	msgs struct {
 		once sync.Once
 		ch   chan bot.Response
 	}
+}
+
+type captchaKey struct {
+	chatID int64
+	userID int64
 }
 
 // Do process all events, blocked call
@@ -73,15 +87,37 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 		log.Printf("[INFO] soft ban mode, no bans but restrictions")
 	}
 
-	// get chat ID for the group we are monitoring
-	var getChatErr error
-	if l.chatID, getChatErr = l.getChatID(l.Group); getChatErr != nil {
-		return fmt.Errorf("failed to get chat ID for group %q: %w", l.Group, getChatErr)
+	l.allowedChatIDs = map[int64]struct{}{}
+	if len(l.Group) == 0 {
+		l.allowAllChats = true
+		log.Printf("[INFO] chat filtering disabled, bot works in all groups")
+	} else {
+		for _, grp := range l.Group {
+			chatID, getChatErr := l.getChatID(grp)
+			if getChatErr != nil {
+				return fmt.Errorf("failed to get chat ID for group %q: %w", grp, getChatErr)
+			}
+			l.allowedChatIDs[chatID] = struct{}{}
+			if l.chatID == 0 {
+				l.chatID = chatID
+			}
+		}
 	}
-	log.Printf("[INFO] primary chat ID: %d", l.chatID)
 
-	if err := l.updateSupers(); err != nil {
-		log.Printf("[WARN] failed to update superusers: %v", err)
+	if l.chatID != 0 {
+		log.Printf("[INFO] primary chat ID: %d", l.chatID)
+	}
+
+	if l.CaptchaManager == nil {
+		l.CaptchaManager = captcha.New(59*time.Second, l.onCaptchaTimeout)
+	}
+	l.captchaMessages = map[captchaKey]int{}
+	l.captchaUsers = map[captchaKey]string{}
+
+	if l.chatID != 0 {
+		if err := l.updateSupers(); err != nil {
+			log.Printf("[WARN] failed to update superusers: %v", err)
+		}
 	}
 
 	if l.AdminGroup != "" {
@@ -100,7 +136,7 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 	})
 
 	// send startup message if any set
-	if l.StartupMsg != "" && !l.TrainingMode && !l.Dry {
+	if l.StartupMsg != "" && !l.TrainingMode && !l.Dry && l.chatID != 0 {
 		if err := l.sendBotResponse(bot.Response{Send: true, Text: l.StartupMsg}, l.chatID, NotificationSilent); err != nil {
 			log.Printf("[WARN] failed to send startup message, %v", err)
 		} else {
@@ -276,9 +312,11 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 			}
 
 		case <-time.After(l.IdleDuration): // hit bots on idle timeout
-			resp := l.Bot.OnMessage(bot.Message{Text: "idle"}, false)
-			if err := l.sendBotResponse(resp, l.chatID, NotificationSilent); err != nil {
-				log.Printf("[WARN] failed to respond on idle, %v", err)
+			if l.chatID != 0 {
+				resp := l.Bot.OnMessage(bot.Message{Text: "idle"}, false)
+				if err := l.sendBotResponse(resp, l.chatID, NotificationSilent); err != nil {
+					log.Printf("[WARN] failed to respond on idle, %v", err)
+				}
 			}
 		}
 	}
@@ -294,6 +332,12 @@ func (l *TelegramListener) procEvents(update tbapi.Update) error {
 	if !l.isChatAllowed(fromChat) {
 		return nil
 	}
+
+	l.ensurePrimaryChatID(fromChat)
+
+	l.ensurePrimaryChatID(fromChat)
+
+	l.ensurePrimaryChatID(fromChat)
 
 	log.Printf("[DEBUG] %s", string(msgJSON))
 	msg := transform(update.Message)
@@ -524,7 +568,11 @@ func (l *TelegramListener) deleteSystemMessage(msgID int, chatID int64, msgType 
 }
 
 func (l *TelegramListener) isChatAllowed(fromChat int64) bool {
-	if fromChat == l.chatID {
+	if l.allowAllChats {
+		return true
+	}
+
+	if _, ok := l.allowedChatIDs[fromChat]; ok {
 		return true
 	}
 	for _, id := range l.TestingIDs {
@@ -614,6 +662,18 @@ func (l *TelegramListener) getChatID(group string) (int64, error) {
 	}
 
 	return chat.ID, nil
+}
+
+func (l *TelegramListener) ensurePrimaryChatID(chatID int64) {
+	if l.chatID != 0 {
+		return
+	}
+
+	l.chatID = chatID
+	log.Printf("[DEBUG] primary chat detected dynamically: %d", chatID)
+	if err := l.updateSupers(); err != nil {
+		log.Printf("[WARN] failed to update superusers for chat %d: %v", chatID, err)
+	}
 }
 
 // updateSupers updates the list of super-users based on the chat administrators fetched from the Telegram API.
