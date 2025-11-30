@@ -102,8 +102,7 @@ func (m *Manager) Clear(chatID, userID int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.stop(key)
-	delete(m.states, key)
+	m.clearLocked(key)
 }
 
 // Verify checks answer and returns next status.
@@ -117,13 +116,13 @@ func (m *Manager) Verify(chatID, userID int64, answer int) (Result, *Challenge) 
 	}
 
 	if answer == st.answer {
-		m.Clear(chatID, userID)
+		m.clearLocked(key)
 		return Result{Status: ResultSuccess, AttemptsLeft: st.attemptsLeft}, nil
 	}
 
 	st.attemptsLeft--
 	if st.attemptsLeft <= 0 {
-		m.Clear(chatID, userID)
+		m.clearLocked(key)
 		return Result{Status: ResultFailed, AttemptsLeft: 0}, nil
 	}
 
@@ -138,6 +137,11 @@ func (m *Manager) stop(key stateKey) {
 	if ok && st.timer != nil {
 		st.timer.Stop()
 	}
+}
+
+func (m *Manager) clearLocked(key stateKey) {
+	m.stop(key)
+	delete(m.states, key)
 }
 
 func (m *Manager) generateChallenge() Challenge {
