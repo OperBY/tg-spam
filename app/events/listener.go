@@ -219,17 +219,21 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 				continue
 			}
 
+			if update.ChatMember != nil {
+				if l.CaptchaHandler != nil && l.isChatAllowed(&update.ChatMember.Chat) && l.isNewChatMember(update.ChatMember) {
+					if err := l.CaptchaHandler.OnUserJoined(update.ChatMember); err != nil {
+						log.Printf("[WARN] failed to process captcha for new chat member: %v", err)
+					}
+				}
+
+				continue
+			}
+
 			if update.Message == nil {
 				continue
 			}
 
 			if update.Message.NewChatMembers != nil {
-				if l.CaptchaHandler != nil && l.isChatAllowed(&update.Message.Chat) {
-					if err := l.CaptchaHandler.OnUserJoined(update.Message); err != nil {
-						log.Printf("[WARN] failed to process captcha for new chat member: %v", err)
-					}
-				}
-
 				// handle join messages with mutually exclusive logic to prevent double-deletion:
 				// - if DeleteJoinMessages=true: delete immediately, don't store in locator
 				// - if DeleteJoinMessages=false: store in locator for potential later deletion via SuppressJoinMessage
@@ -570,6 +574,20 @@ func (l *TelegramListener) prepareAllowedChats() {
 	}
 }
 
+func (l *TelegramListener) isNewChatMember(update *tbapi.ChatMemberUpdated) bool {
+	if update == nil || update.NewChatMember.User == nil {
+		return false
+	}
+
+	joinedStatuses := map[string]struct{}{"member": {}, "restricted": {}}
+	previousStatuses := map[string]struct{}{"left": {}, "kicked": {}}
+
+	_, wasOutside := previousStatuses[update.OldChatMember.Status]
+	_, isInside := joinedStatuses[update.NewChatMember.Status]
+
+	return wasOutside && isInside
+}
+
 func (l *TelegramListener) isChatAllowed(chat *tbapi.Chat) bool {
 	if chat == nil {
 		return false
@@ -582,7 +600,11 @@ func (l *TelegramListener) isChatAllowed(chat *tbapi.Chat) bool {
 	}
 
 	if len(l.allowedChats) == 0 {
-		return true
+		if l.chatID == 0 {
+			return true
+		}
+
+		return chat.ID == l.chatID
 	}
 
 	username := strings.TrimPrefix(chat.UserName, "@")

@@ -38,12 +38,12 @@ func NewHandler(bot BotAPI, timeout time.Duration) *Handler {
 //   - restricts the user (no send permissions)
 //   - stores state with Attempts = 2 and Deadline = now + Timeout
 //   - schedules an expiration check that will kick user after deadline
-func (h *Handler) OnUserJoined(msg *tbapi.Message) error {
-	if msg == nil || len(msg.NewChatMembers) == 0 {
+func (h *Handler) OnUserJoined(update *tbapi.ChatMemberUpdated) error {
+	if update == nil || update.NewChatMember.User == nil {
 		return nil
 	}
 
-	user := msg.NewChatMembers[0]
+	user := update.NewChatMember.User
 
 	// create task
 	task := GenerateTask()
@@ -62,7 +62,7 @@ func (h *Handler) OnUserJoined(msg *tbapi.Message) error {
 		user.FirstName, task.Question)
 
 	captchaMsg, err := h.Bot.Send(tbapi.MessageConfig{
-		BaseChat: tbapi.BaseChat{ChatConfig: tbapi.ChatConfig{ChatID: msg.Chat.ID}, ReplyMarkup: &tbapi.InlineKeyboardMarkup{
+		BaseChat: tbapi.BaseChat{ChatConfig: tbapi.ChatConfig{ChatID: update.Chat.ID}, ReplyMarkup: &tbapi.InlineKeyboardMarkup{
 			InlineKeyboard: buttons,
 		}},
 		Text:      msgText,
@@ -75,7 +75,7 @@ func (h *Handler) OnUserJoined(msg *tbapi.Message) error {
 	// restrict user (no permissions) until they pass captcha
 	_, _ = h.Bot.Request(tbapi.RestrictChatMemberConfig{
 		ChatMemberConfig: tbapi.ChatMemberConfig{
-			ChatConfig: tbapi.ChatConfig{ChatID: msg.Chat.ID},
+			ChatConfig: tbapi.ChatConfig{ChatID: update.Chat.ID},
 			UserID:     user.ID,
 		},
 		Permissions: &tbapi.ChatPermissions{},
@@ -83,7 +83,7 @@ func (h *Handler) OnUserJoined(msg *tbapi.Message) error {
 
 	// store state with 2 attempts
 	h.State.Set(UserState{
-		ChatID:    msg.Chat.ID,
+		ChatID:    update.Chat.ID,
 		UserID:    user.ID,
 		Answer:    task.Answer,
 		MessageID: captchaMsg.MessageID,
@@ -101,7 +101,7 @@ func (h *Handler) OnUserJoined(msg *tbapi.Message) error {
 		if time.Now().After(st.Deadline) {
 			h.failCaptcha(st, user.FirstName, "⏳ CAPTCHA expired — user removed. If you are human, try joining again.")
 		}
-	}(msg.Chat.ID, user.ID)
+	}(update.Chat.ID, user.ID)
 
 	return nil
 }

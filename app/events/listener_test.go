@@ -1850,6 +1850,57 @@ func TestTelegramListener_isChatAllowed(t *testing.T) {
 	}
 }
 
+func TestTelegramListener_isNewChatMember(t *testing.T) {
+	listener := TelegramListener{}
+
+	testCases := []struct {
+		name   string
+		update *tbapi.ChatMemberUpdated
+		expect bool
+	}{
+		{
+			name: "new member from left",
+			update: &tbapi.ChatMemberUpdated{
+				OldChatMember: tbapi.ChatMember{Status: "left", User: &tbapi.User{ID: 1}},
+				NewChatMember: tbapi.ChatMember{Status: "member", User: &tbapi.User{ID: 1}},
+			},
+			expect: true,
+		},
+		{
+			name: "new restricted member from kicked",
+			update: &tbapi.ChatMemberUpdated{
+				OldChatMember: tbapi.ChatMember{Status: "kicked", User: &tbapi.User{ID: 2}},
+				NewChatMember: tbapi.ChatMember{Status: "restricted", User: &tbapi.User{ID: 2}},
+			},
+			expect: true,
+		},
+		{
+			name: "status change without joining",
+			update: &tbapi.ChatMemberUpdated{
+				OldChatMember: tbapi.ChatMember{Status: "member", User: &tbapi.User{ID: 3}},
+				NewChatMember: tbapi.ChatMember{Status: "administrator", User: &tbapi.User{ID: 3}},
+			},
+			expect: false,
+		},
+		{
+			name:   "nil update",
+			update: nil,
+			expect: false,
+		},
+		{
+			name:   "missing user",
+			update: &tbapi.ChatMemberUpdated{NewChatMember: tbapi.ChatMember{}},
+			expect: false,
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expect, listener.isNewChatMember(tt.update))
+		})
+	}
+}
+
 func TestTelegramListener_isAdminChat(t *testing.T) {
 	testCases := []struct {
 		name     string
