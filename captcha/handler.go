@@ -249,7 +249,8 @@ func (h *Handler) passCaptcha(st UserState, firstName string) {
 
 	h.State.Delete(st.UserID)
 
-	_, _ = h.Bot.Send(tbapi.NewMessage(chatID, fmt.Sprintf("✅ %s passed the CAPTCHA.", firstName)))
+	msg, _ := h.Bot.Send(tbapi.NewMessage(chatID, fmt.Sprintf("✅ %s passed the CAPTCHA.", firstName)))
+	h.scheduleDelete(chatID, msg.MessageID, time.Minute)
 }
 
 // failCaptcha removes the user from the chat and cleans state.
@@ -265,5 +266,13 @@ func (h *Handler) failCaptcha(st UserState, firstName, reason string) {
 		RevokeMessages:   true,
 	})
 
-	_, _ = h.Bot.Send(tbapi.NewMessage(chatID, reason))
+	msg, _ := h.Bot.Send(tbapi.NewMessage(chatID, reason))
+	h.scheduleDelete(chatID, msg.MessageID, time.Minute)
+}
+
+// scheduleDelete removes a bot message after the given delay.
+func (h *Handler) scheduleDelete(chatID int64, messageID int, delay time.Duration) {
+	time.AfterFunc(delay, func() {
+		_, _ = h.Bot.Request(tbapi.DeleteMessageConfig{BaseChatMessage: tbapi.BaseChatMessage{ChatConfig: tbapi.ChatConfig{ChatID: chatID}, MessageID: messageID}})
+	})
 }
