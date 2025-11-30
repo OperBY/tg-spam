@@ -18,14 +18,14 @@ type UserState struct {
 
 // Manager safely stores CAPTCHA state for all currently challenged users.
 type Manager struct {
-	m   map[int64]UserState // Key: userID → state
+	m   map[uint64]UserState // Key: stateKey(chatID, userID) → state
 	mux sync.RWMutex
 }
 
 // NewManager creates a fresh manager with no active states.
 func NewManager() *Manager {
 	return &Manager{
-		m: make(map[int64]UserState),
+		m: make(map[uint64]UserState),
 	}
 }
 
@@ -33,31 +33,31 @@ func NewManager() *Manager {
 func (mgr *Manager) Set(state UserState) {
 	mgr.mux.Lock()
 	defer mgr.mux.Unlock()
-	mgr.m[state.UserID] = state
+	mgr.m[stateKey(state.ChatID, state.UserID)] = state
 }
 
 // Get retrieves a user's CAPTCHA state if it exists.
-func (mgr *Manager) Get(userID int64) (UserState, bool) {
+func (mgr *Manager) Get(chatID, userID int64) (UserState, bool) {
 	mgr.mux.RLock()
 	defer mgr.mux.RUnlock()
-	st, ok := mgr.m[userID]
+	st, ok := mgr.m[stateKey(chatID, userID)]
 	return st, ok
 }
 
 // Delete removes a user's CAPTCHA state (after success or failure).
-func (mgr *Manager) Delete(userID int64) {
+func (mgr *Manager) Delete(chatID, userID int64) {
 	mgr.mux.Lock()
 	defer mgr.mux.Unlock()
-	delete(mgr.m, userID)
+	delete(mgr.m, stateKey(chatID, userID))
 }
 
 // Check verifies if the user has provided the correct answer.
 // Expired CAPTCHA is always invalid.
-func (mgr *Manager) Check(userID int64, answer int) bool {
+func (mgr *Manager) Check(chatID, userID int64, answer int) bool {
 	mgr.mux.RLock()
 	defer mgr.mux.RUnlock()
 
-	st, ok := mgr.m[userID]
+	st, ok := mgr.m[stateKey(chatID, userID)]
 	if !ok {
 		return false
 	}
@@ -71,11 +71,11 @@ func (mgr *Manager) Check(userID int64, answer int) bool {
 }
 
 // Expired reports whether the user’s CAPTCHA deadline has passed.
-func (mgr *Manager) Expired(userID int64) bool {
+func (mgr *Manager) Expired(chatID, userID int64) bool {
 	mgr.mux.RLock()
 	defer mgr.mux.RUnlock()
 
-	st, ok := mgr.m[userID]
+	st, ok := mgr.m[stateKey(chatID, userID)]
 	if !ok {
 		return true
 	}
@@ -85,16 +85,20 @@ func (mgr *Manager) Expired(userID int64) bool {
 
 // Update replaces the user's state with a modified copy.
 // This is useful to modify attempts or regenerate CAPTCHA.
-func (mgr *Manager) Update(userID int64, updateFn func(*UserState)) bool {
+func (mgr *Manager) Update(chatID, userID int64, updateFn func(*UserState)) bool {
 	mgr.mux.Lock()
 	defer mgr.mux.Unlock()
 
-	st, ok := mgr.m[userID]
+	st, ok := mgr.m[stateKey(chatID, userID)]
 	if !ok {
 		return false
 	}
 
 	updateFn(&st)
-	mgr.m[userID] = st
+	mgr.m[stateKey(chatID, userID)] = st
 	return true
+}
+
+func stateKey(chatID, userID int64) uint64 {
+	return (uint64(chatID) << 32) | uint64(userID)
 }

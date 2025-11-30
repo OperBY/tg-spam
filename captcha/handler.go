@@ -92,16 +92,16 @@ func (h *Handler) OnUserJoined(msg *tbapi.Message) error {
 	})
 
 	// schedule expiration check
-	go func(uid int64) {
+	go func(chatID, uid int64) {
 		time.Sleep(h.Timeout + 1*time.Second)
-		st, ok := h.State.Get(uid)
+		st, ok := h.State.Get(chatID, uid)
 		if !ok {
 			return
 		}
 		if time.Now().After(st.Deadline) {
 			h.failCaptcha(st, user.FirstName, "⏳ CAPTCHA expired — user removed. If you are human, try joining again.")
 		}
-	}(user.ID)
+	}(msg.Chat.ID, user.ID)
 
 	return nil
 }
@@ -112,7 +112,7 @@ func (h *Handler) OnMessage(msg *tbapi.Message) bool {
 	if msg == nil || msg.From == nil {
 		return false
 	}
-	_, has := h.State.Get(msg.From.ID)
+	_, has := h.State.Get(msg.Chat.ID, msg.From.ID)
 	if has {
 		_, _ = h.Bot.Request(tbapi.DeleteMessageConfig{ // best-effort
 			BaseChatMessage: tbapi.BaseChatMessage{ChatConfig: tbapi.ChatConfig{ChatID: msg.Chat.ID}, MessageID: msg.MessageID},
@@ -129,7 +129,7 @@ func (h *Handler) OnCallback(query *tbapi.CallbackQuery) bool {
 		return false
 	}
 
-	st, ok := h.State.Get(query.From.ID)
+	st, ok := h.State.Get(query.Message.Chat.ID, query.From.ID)
 	if !ok {
 		return false
 	}
@@ -147,7 +147,7 @@ func (h *Handler) OnCallback(query *tbapi.CallbackQuery) bool {
 	}
 
 	if time.Now().After(st.Deadline) {
-		h.State.Delete(query.From.ID)
+		h.State.Delete(query.Message.Chat.ID, query.From.ID)
 		h.answerCallback(query.ID, "CAPTCHA expired.", false)
 		h.failCaptcha(st, query.From.FirstName, "⏳ CAPTCHA expired — user removed. If you are human, try joining again.")
 		return true
@@ -205,16 +205,16 @@ func (h *Handler) OnCallback(query *tbapi.CallbackQuery) bool {
 		Attempts:  newAttempts,
 	})
 
-	go func(uid int64) {
+	go func(chatID, uid int64) {
 		time.Sleep(h.Timeout + 1*time.Second)
-		cur, ok := h.State.Get(uid)
+		cur, ok := h.State.Get(chatID, uid)
 		if !ok {
 			return
 		}
 		if time.Now().After(cur.Deadline) {
 			h.failCaptcha(cur, query.From.FirstName, "⏳ CAPTCHA expired — user removed. If you are human, try joining again.")
 		}
-	}(st.UserID)
+	}(st.ChatID, st.UserID)
 
 	h.answerCallback(query.ID, "Wrong answer. New CAPTCHA sent. This is your last attempt.", false)
 
@@ -247,7 +247,7 @@ func (h *Handler) passCaptcha(st UserState, firstName string) {
 
 	_, _ = h.Bot.Request(tbapi.DeleteMessageConfig{BaseChatMessage: tbapi.BaseChatMessage{ChatConfig: tbapi.ChatConfig{ChatID: chatID}, MessageID: st.MessageID}})
 
-	h.State.Delete(st.UserID)
+	h.State.Delete(st.ChatID, st.UserID)
 
 	msg, _ := h.Bot.Send(tbapi.NewMessage(chatID, fmt.Sprintf("✅ %s passed the CAPTCHA.", firstName)))
 	h.scheduleDelete(chatID, msg.MessageID, time.Minute)
@@ -259,7 +259,7 @@ func (h *Handler) failCaptcha(st UserState, firstName, reason string) {
 
 	_, _ = h.Bot.Request(tbapi.DeleteMessageConfig{BaseChatMessage: tbapi.BaseChatMessage{ChatConfig: tbapi.ChatConfig{ChatID: chatID}, MessageID: st.MessageID}})
 
-	h.State.Delete(st.UserID)
+	h.State.Delete(st.ChatID, st.UserID)
 
 	_, _ = h.Bot.Request(tbapi.BanChatMemberConfig{
 		ChatMemberConfig: tbapi.ChatMemberConfig{ChatConfig: tbapi.ChatConfig{ChatID: chatID}, UserID: st.UserID},
