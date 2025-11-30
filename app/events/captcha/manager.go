@@ -35,6 +35,7 @@ const (
 type Result struct {
 	Status       ResultStatus
 	AttemptsLeft int
+	Messages     []int
 }
 
 // Challenge describes captcha task.
@@ -54,7 +55,10 @@ type stateKey struct {
 type state struct {
 	attemptsLeft int
 	answer       int
+	challenge    Challenge
 	timer        *time.Timer
+	startedAt    time.Time
+	messages     []int
 }
 
 // New creates captcha manager.
@@ -76,13 +80,8 @@ func (m *Manager) Start(chatID, userID int64) Challenge {
 	m.stop(key)
 
 	ch := m.generateChallenge()
-	st := &state{attemptsLeft: 2, answer: ch.Answer}
-	st.timer = time.AfterFunc(m.timeout, func() {
-		if m.onTimeout != nil {
-			m.onTimeout(chatID, userID)
-		}
-		m.Clear(chatID, userID)
-	})
+	st := &state{attemptsLeft: 2, answer: ch.Answer, challenge: ch, startedAt: time.Now()}
+	st.timer = m.newTimer(key)
 	m.states[key] = st
 	return ch
 }
@@ -96,13 +95,14 @@ func (m *Manager) Active(chatID, userID int64) bool {
 	return ok
 }
 
-// Clear removes state.
-func (m *Manager) Clear(chatID, userID int64) {
+// Clear removes state and returns tracked message IDs.
+func (m *Manager) Clear(chatID, userID int64) []int {
 	key := stateKey{chatID: chatID, userID: userID}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.clearLocked(key)
+	st := m.clearLocked(key)
+	return collectMessages(st)
 }
 
 // Verify checks answer and returns next status.
@@ -116,20 +116,64 @@ func (m *Manager) Verify(chatID, userID int64, answer int) (Result, *Challenge) 
 	}
 
 	if answer == st.answer {
-		m.clearLocked(key)
-		return Result{Status: ResultSuccess, AttemptsLeft: st.attemptsLeft}, nil
+		removed := m.clearLocked(key)
+		return Result{Status: ResultSuccess, AttemptsLeft: st.attemptsLeft, Messages: collectMessages(removed)}, nil
 	}
 
 	st.attemptsLeft--
 	if st.attemptsLeft <= 0 {
-		m.clearLocked(key)
-		return Result{Status: ResultFailed, AttemptsLeft: 0}, nil
+		removed := m.clearLocked(key)
+		return Result{Status: ResultFailed, AttemptsLeft: 0, Messages: collectMessages(removed)}, nil
 	}
 
 	challenge := m.generateChallenge()
 	st.answer = challenge.Answer
+	st.challenge = challenge
+	st.startedAt = time.Now()
+	st.timer = m.newTimer(key)
 	m.states[key] = st
 	return Result{Status: ResultRetry, AttemptsLeft: st.attemptsLeft}, &challenge
+}
+
+// TrackMessage adds message ID for later cleanup.
+func (m *Manager) TrackMessage(chatID, userID int64, msgID int) {
+	key := stateKey{chatID: chatID, userID: userID}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	st, ok := m.states[key]
+	if !ok {
+		return
+	}
+	st.messages = append(st.messages, msgID)
+	m.states[key] = st
+}
+
+// ChallengeInfo returns current challenge details if active.
+func (m *Manager) ChallengeInfo(chatID, userID int64) (Challenge, bool) {
+	key := stateKey{chatID: chatID, userID: userID}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	st, ok := m.states[key]
+	if !ok {
+		return Challenge{}, false
+	}
+
+	return st.challenge, true
+}
+
+// StartedAt returns start time of current captcha.
+func (m *Manager) StartedAt(chatID, userID int64) (time.Time, bool) {
+	key := stateKey{chatID: chatID, userID: userID}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	st, ok := m.states[key]
+	if !ok {
+		return time.Time{}, false
+	}
+	return st.startedAt, true
 }
 
 func (m *Manager) stop(key stateKey) {
@@ -139,9 +183,34 @@ func (m *Manager) stop(key stateKey) {
 	}
 }
 
-func (m *Manager) clearLocked(key stateKey) {
+func (m *Manager) clearLocked(key stateKey) *state {
+	st, ok := m.states[key]
+	if !ok {
+		return nil
+	}
 	m.stop(key)
 	delete(m.states, key)
+	return st
+}
+
+func collectMessages(st *state) []int {
+	if st == nil {
+		return nil
+	}
+	return append([]int(nil), st.messages...)
+}
+
+func (m *Manager) newTimer(key stateKey) *time.Timer {
+	chatID, userID := key.chatID, key.userID
+	if st, ok := m.states[key]; ok && st.timer != nil {
+		st.timer.Stop()
+	}
+	return time.AfterFunc(m.timeout, func() {
+		if m.onTimeout != nil {
+			m.onTimeout(chatID, userID)
+		}
+		m.Clear(chatID, userID)
+	})
 }
 
 func (m *Manager) generateChallenge() Challenge {
@@ -163,27 +232,25 @@ func (m *Manager) randomOperand() int {
 func (m *Manager) generateOptions(answer, a, b int) []int {
 	used := map[int]struct{}{answer: {}}
 
-	permuted := m.permutedAnswer(answer)
+	permutedBase := answer
+	permuted := swapDigits(permutedBase)
 	if _, exists := used[permuted]; exists {
-		permuted = m.permutedAnswer(answer + 1)
+		permutedBase++
+		permuted = swapDigits(permutedBase)
 	}
 	used[permuted] = struct{}{}
 
-	digits := append(extractDigits(a), extractDigits(b)...)
-	digits = append(digits, extractDigits(answer)...)
-
-	addOption := func() int {
-		for {
-			val := buildFromDigits(digits, m.rand)
-			if _, ok := used[val]; !ok {
-				used[val] = struct{}{}
-				return val
-			}
-		}
+	opt2 := combineDigitsDeterministic(a, b)
+	if _, exists := used[opt2]; exists {
+		opt2 = mixDigits(a, b)
 	}
+	used[opt2] = struct{}{}
 
-	opt2 := addOption()
-	opt3 := addOption()
+	opt3 := digitDistanceOption(a, b, answer)
+	if _, exists := used[opt3]; exists {
+		opt3 = (answer % 10 * 10) + (a % 10)
+	}
+	used[opt3] = struct{}{}
 
 	extra := 0
 	for {
@@ -208,15 +275,49 @@ func (m *Manager) permutedAnswer(answer int) int {
 	return digits[0]*10 + digits[1]
 }
 
-func extractDigits(number int) []int {
-	return []int{(number / 10) % 10, number % 10}
+func swapDigits(number int) int {
+	digits := extractDigits(number)
+	if len(digits) < 2 {
+		return number
+	}
+	return digits[1]*10 + digits[0]
 }
 
-func buildFromDigits(digits []int, rnd *rand.Rand) int {
-	d1 := digits[rnd.Intn(len(digits))]
-	d2 := digits[rnd.Intn(len(digits))]
-	if d1 == 0 {
-		d1 = 1 + rnd.Intn(9)
+func combineDigitsDeterministic(a, b int) int {
+	aDigits := extractDigits(a)
+	bDigits := extractDigits(b)
+	val := aDigits[0]*10 + bDigits[1]
+	if val < 10 {
+		val = 10 + (aDigits[1]+bDigits[0])%90
 	}
-	return d1*10 + d2
+	return val
+}
+
+func mixDigits(a, b int) int {
+	aDigits := extractDigits(a)
+	bDigits := extractDigits(b)
+	return bDigits[0]*10 + aDigits[1]
+}
+
+func digitDistanceOption(a, b, answer int) int {
+	diff := absInt(a - b)
+	if diff < 10 {
+		diff = 10 + diff
+	}
+	digits := extractDigits(answer)
+	if diff < 10 {
+		diff = 10 + digits[1]
+	}
+	return diff%90 + 10
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func extractDigits(number int) []int {
+	return []int{(number / 10) % 10, number % 10}
 }

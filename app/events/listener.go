@@ -53,7 +53,7 @@ type TelegramListener struct {
 
 	CaptchaManager *captcha.Manager
 
-	captchaMessages map[captchaKey]int
+	captchaMessages map[captchaKey][]int
 	captchaUsers    map[captchaKey]string
 	captchaMu       sync.Mutex
 
@@ -61,7 +61,6 @@ type TelegramListener struct {
 	reportsHandler *userReports
 	chatID         int64
 	allowedChatIDs map[int64]struct{}
-	allowAllChats  bool
 	adminChatID    int64
 
 	msgs struct {
@@ -74,6 +73,8 @@ type captchaKey struct {
 	chatID int64
 	userID int64
 }
+
+const captchaCallbackPrefix = "CAPTCHA:"
 
 // Do process all events, blocked call
 func (l *TelegramListener) Do(ctx context.Context) error {
@@ -89,8 +90,7 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 
 	l.allowedChatIDs = map[int64]struct{}{}
 	if len(l.Group) == 0 {
-		l.allowAllChats = true
-		log.Printf("[INFO] chat filtering disabled, bot works in all groups")
+		log.Printf("[WARN] TELEGRAM_GROUP is empty, bot will not process group updates")
 	} else {
 		for _, grp := range l.Group {
 			chatID, getChatErr := l.getChatID(grp)
@@ -111,7 +111,7 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 	if l.CaptchaManager == nil {
 		l.CaptchaManager = captcha.New(59*time.Second, l.onCaptchaTimeout)
 	}
-	l.captchaMessages = map[captchaKey]int{}
+	l.captchaMessages = map[captchaKey][]int{}
 	l.captchaUsers = map[captchaKey]string{}
 
 	if l.chatID != 0 {
@@ -183,6 +183,16 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 				return fmt.Errorf("telegram update chan closed")
 			}
 
+			if update.ChatMember != nil {
+				l.handleChatMemberUpdate(update.ChatMember)
+				continue
+			}
+
+			if update.MyChatMember != nil {
+				l.handleChatMemberUpdate(update.MyChatMember)
+				continue
+			}
+
 			// handle admin chat messages. can be just messages (MsgHandler will ignore those)
 			// or forwards of undetected spam by admins to admin's chat (in this case MsgHandler will process them and ban/train)
 			if update.Message != nil && l.isAdminChat(update.Message.Chat.ID, update.Message.From.UserName, update.Message.From.ID) {
@@ -201,6 +211,9 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 
 			// handle admin chat inline buttons - route based on callback prefix
 			if update.CallbackQuery != nil {
+				if l.handleCaptchaCallback(update.CallbackQuery) {
+					continue
+				}
 				callbackData := update.CallbackQuery.Data
 
 				// delegate report callbacks (prefixes R+, R-, R?, R!, RX) to reportsHandler
@@ -244,6 +257,7 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 			}
 
 			if update.Message.NewChatMembers != nil {
+				l.handleNewChatMembers(update.Message)
 				// handle join messages with mutually exclusive logic to prevent double-deletion:
 				// - if DeleteJoinMessages=true: delete immediately, don't store in locator
 				// - if DeleteJoinMessages=false: store in locator for potential later deletion via SuppressJoinMessage
@@ -334,6 +348,12 @@ func (l *TelegramListener) procEvents(update tbapi.Update) error {
 	}
 
 	l.ensurePrimaryChatID(fromChat)
+
+	if update.Message.From != nil && l.CaptchaManager.Active(fromChat, update.Message.From.ID) {
+		l.restrictUser(fromChat, update.Message.From.ID)
+		l.deleteUserMessage(update.Message)
+		return nil
+	}
 
 	l.ensurePrimaryChatID(fromChat)
 
@@ -567,19 +587,299 @@ func (l *TelegramListener) deleteSystemMessage(msgID int, chatID int64, msgType 
 	}
 }
 
-func (l *TelegramListener) isChatAllowed(fromChat int64) bool {
-	if l.allowAllChats {
+func (l *TelegramListener) handleChatMemberUpdate(update *tbapi.ChatMemberUpdated) {
+	chatID := update.Chat.ID
+	if !l.isChatAllowed(chatID) {
+		return
+	}
+
+	l.ensurePrimaryChatID(chatID)
+
+	oldStatus := strings.ToLower(update.OldChatMember.Status)
+	newStatus := strings.ToLower(update.NewChatMember.Status)
+
+	if !(oldStatus == "left" || oldStatus == "kicked") {
+		return
+	}
+
+	if !(newStatus == "member" || newStatus == "restricted") {
+		return
+	}
+
+	if update.NewChatMember.User == nil || update.NewChatMember.User.IsBot {
+		return
+	}
+
+	l.startCaptchaForUser(chatID, update.NewChatMember.User)
+}
+
+func (l *TelegramListener) handleNewChatMembers(message *tbapi.Message) {
+	if message == nil || len(message.NewChatMembers) == 0 {
+		return
+	}
+	if !l.isChatAllowed(message.Chat.ID) {
+		return
+	}
+
+	l.ensurePrimaryChatID(message.Chat.ID)
+
+	for i := range message.NewChatMembers {
+		user := message.NewChatMembers[i]
+		if user.IsBot {
+			continue
+		}
+		l.startCaptchaForUser(message.Chat.ID, &user)
+	}
+}
+
+func (l *TelegramListener) startCaptchaForUser(chatID int64, user *tbapi.User) {
+	key := captchaKey{chatID: chatID, userID: user.ID}
+
+	l.captchaMu.Lock()
+	l.captchaUsers[key] = l.userMention(user)
+	l.captchaMu.Unlock()
+
+	l.restrictUser(chatID, user.ID)
+
+	challenge := l.CaptchaManager.Start(chatID, user.ID)
+	text := fmt.Sprintf("%s, добро пожаловать! Это проверка на бота. Для доступа к чату решите задачу за 59 секунд. У вас две попытки.\nСколько будет %s?", l.userMention(user), challenge.Question)
+	if _, err := l.sendCaptchaPrompt(chatID, user.ID, text, challenge.Options); err != nil {
+		log.Printf("[WARN] failed to send captcha prompt: %v", err)
+	}
+}
+
+func (l *TelegramListener) sendCaptchaPrompt(chatID, userID int64, text string, options []int) (int, error) {
+	buttons := make([]tbapi.InlineKeyboardButton, 0, len(options))
+	for _, opt := range options {
+		buttons = append(buttons, tbapi.NewInlineKeyboardButtonData(strconv.Itoa(opt), fmt.Sprintf("%s%d", captchaCallbackPrefix, opt)))
+	}
+
+	keyboard := tbapi.NewInlineKeyboardMarkup(tbapi.NewInlineKeyboardRow(buttons...))
+
+	msgCfg := tbapi.NewMessage(chatID, text)
+	msgCfg.ReplyMarkup = keyboard
+	msgCfg.ParseMode = tbapi.ModeMarkdown
+
+	msg, err := l.TbAPI.Send(msgCfg)
+	if err != nil {
+		return 0, err
+	}
+
+	l.CaptchaManager.TrackMessage(chatID, userID, msg.MessageID)
+	l.scheduleCaptchaDeletion(chatID, msg.MessageID)
+	return msg.MessageID, nil
+}
+
+func (l *TelegramListener) handleCaptchaCallback(query *tbapi.CallbackQuery) bool {
+	if query == nil || query.Message == nil || query.From == nil {
+		return false
+	}
+
+	if !strings.HasPrefix(query.Data, captchaCallbackPrefix) {
+		return false
+	}
+
+	chatID := query.Message.Chat.ID
+	if !l.isChatAllowed(chatID) {
 		return true
+	}
+
+	answer, err := strconv.Atoi(strings.TrimPrefix(query.Data, captchaCallbackPrefix))
+	if err != nil {
+		return true
+	}
+
+	result, challenge := l.CaptchaManager.Verify(chatID, query.From.ID, answer)
+	if result.Status == captcha.ResultNotFound {
+		return true
+	}
+
+	if _, errCallback := l.TbAPI.Request(tbapi.CallbackConfig{CallbackQueryID: query.ID}); errCallback != nil {
+		log.Printf("[DEBUG] failed to answer callback: %v", errCallback)
+	}
+
+	switch result.Status {
+	case captcha.ResultSuccess:
+		l.restoreUserPermissions(chatID, query.From.ID)
+		l.cleanupCaptchaState(chatID, query.From.ID, append(result.Messages, query.Message.MessageID)...)
+		msg := fmt.Sprintf("%s, спасибо! Проверка пройдена, добро пожаловать.", l.userMention(query.From))
+		if _, err := l.sendCaptchaNotice(chatID, query.From.ID, msg); err != nil {
+			log.Printf("[WARN] failed to send captcha success notice: %v", err)
+		}
+	case captcha.ResultRetry:
+		l.deleteUserMessage(query.Message)
+		warning := fmt.Sprintf("%s, это была ошибка. Осталась последняя попытка.", l.userMention(query.From))
+		if _, err := l.sendCaptchaNotice(chatID, query.From.ID, warning); err != nil {
+			log.Printf("[WARN] failed to send captcha warning: %v", err)
+		}
+		if challenge != nil {
+			prompt := fmt.Sprintf("Повторная проверка: сколько будет %s?", challenge.Question)
+			if _, err := l.sendCaptchaPrompt(chatID, query.From.ID, prompt, challenge.Options); err != nil {
+				log.Printf("[WARN] failed to send retry captcha prompt: %v", err)
+			}
+		}
+	case captcha.ResultFailed:
+		l.cleanupCaptchaState(chatID, query.From.ID, append(result.Messages, query.Message.MessageID)...)
+		l.banUser(chatID, query.From.ID)
+		msg := fmt.Sprintf("%s не прошёл проверку и был заблокирован.", l.userMention(query.From))
+		if _, err := l.sendCaptchaNotice(chatID, query.From.ID, msg); err != nil {
+			log.Printf("[WARN] failed to send captcha fail notice: %v", err)
+		}
+	}
+
+	return true
+}
+
+func (l *TelegramListener) sendCaptchaNotice(chatID, userID int64, text string) (int, error) {
+	msgCfg := tbapi.NewMessage(chatID, text)
+	msgCfg.ParseMode = tbapi.ModeMarkdown
+	msg, err := l.TbAPI.Send(msgCfg)
+	if err != nil {
+		return 0, err
+	}
+
+	l.CaptchaManager.TrackMessage(chatID, userID, msg.MessageID)
+	l.scheduleCaptchaDeletion(chatID, msg.MessageID)
+	return msg.MessageID, nil
+}
+
+func (l *TelegramListener) cleanupCaptchaState(chatID, userID int64, extra ...int) {
+	key := captchaKey{chatID: chatID, userID: userID}
+	l.captchaMu.Lock()
+	delete(l.captchaUsers, key)
+	l.captchaMu.Unlock()
+
+	tracked := l.CaptchaManager.Clear(chatID, userID)
+	tracked = append(tracked, extra...)
+	for _, msgID := range tracked {
+		l.deleteCaptchaMessage(chatID, msgID)
+	}
+}
+
+func (l *TelegramListener) scheduleCaptchaDeletion(chatID int64, msgID int) {
+	time.AfterFunc(time.Minute, func() {
+		l.deleteCaptchaMessage(chatID, msgID)
+	})
+}
+
+func (l *TelegramListener) deleteCaptchaMessage(chatID int64, msgID int) {
+	if msgID == 0 || chatID == 0 {
+		return
+	}
+	if _, err := l.TbAPI.Request(tbapi.DeleteMessageConfig{BaseChatMessage: tbapi.BaseChatMessage{MessageID: msgID, ChatConfig: tbapi.ChatConfig{ChatID: chatID}}}); err != nil {
+		log.Printf("[DEBUG] failed to delete captcha message %d: %v", msgID, err)
+	}
+}
+
+func (l *TelegramListener) restrictUser(chatID, userID int64) {
+	if chatID == 0 || userID == 0 {
+		return
+	}
+
+	_, err := l.TbAPI.Request(tbapi.RestrictChatMemberConfig{
+		ChatMemberConfig: tbapi.ChatMemberConfig{UserID: userID, ChatConfig: tbapi.ChatConfig{ChatID: chatID}},
+		Permissions:      tbapi.ChatPermissions{},
+	})
+	if err != nil {
+		log.Printf("[WARN] failed to restrict user %d in chat %d: %v", userID, chatID, err)
+	}
+}
+
+func (l *TelegramListener) restoreUserPermissions(chatID, userID int64) {
+	if chatID == 0 || userID == 0 {
+		return
+	}
+
+	perms := tbapi.ChatPermissions{
+		CanSendMessages:       true,
+		CanSendAudios:         true,
+		CanSendDocuments:      true,
+		CanSendPhotos:         true,
+		CanSendVideos:         true,
+		CanSendVideoNotes:     true,
+		CanSendVoiceNotes:     true,
+		CanSendPolls:          true,
+		CanSendOtherMessages:  true,
+		CanAddWebPagePreviews: true,
+		CanInviteUsers:        true,
+	}
+
+	_, err := l.TbAPI.Request(tbapi.RestrictChatMemberConfig{
+		ChatMemberConfig: tbapi.ChatMemberConfig{UserID: userID, ChatConfig: tbapi.ChatConfig{ChatID: chatID}},
+		Permissions:      perms,
+	})
+	if err != nil {
+		log.Printf("[WARN] failed to restore user permissions for %d in chat %d: %v", userID, chatID, err)
+	}
+}
+
+func (l *TelegramListener) deleteUserMessage(msg *tbapi.Message) {
+	if msg == nil {
+		return
+	}
+	deleteMsg := tbapi.DeleteMessageConfig{BaseChatMessage: tbapi.BaseChatMessage{ChatConfig: tbapi.ChatConfig{ChatID: msg.Chat.ID}, MessageID: msg.MessageID}}
+	if _, err := l.TbAPI.Request(deleteMsg); err != nil {
+		log.Printf("[DEBUG] failed to delete user message %d: %v", msg.MessageID, err)
+	}
+}
+
+func (l *TelegramListener) banUser(chatID, userID int64) {
+	if chatID == 0 || userID == 0 {
+		return
+	}
+	if _, err := l.TbAPI.Request(tbapi.BanChatMemberConfig{ChatMemberConfig: tbapi.ChatMemberConfig{ChatConfig: tbapi.ChatConfig{ChatID: chatID}, UserID: userID}}); err != nil {
+		log.Printf("[WARN] failed to ban user %d in chat %d: %v", userID, chatID, err)
+	}
+}
+
+func (l *TelegramListener) onCaptchaTimeout(chatID, userID int64) {
+	key := captchaKey{chatID: chatID, userID: userID}
+	l.captchaMu.Lock()
+	mention := l.captchaUsers[key]
+	l.captchaMu.Unlock()
+
+	if mention == "" {
+		mention = fmt.Sprintf("пользователь %d", userID)
+	}
+
+	msgs := l.CaptchaManager.Clear(chatID, userID)
+	for _, msgID := range msgs {
+		l.deleteCaptchaMessage(chatID, msgID)
+	}
+
+	l.banUser(chatID, userID)
+	failure := fmt.Sprintf("%s не прошёл проверку вовремя и был заблокирован.", mention)
+	if _, err := l.sendCaptchaNotice(chatID, userID, failure); err != nil {
+		log.Printf("[WARN] failed to send captcha timeout notice: %v", err)
+	}
+
+	l.captchaMu.Lock()
+	delete(l.captchaUsers, key)
+	l.captchaMu.Unlock()
+}
+
+func (l *TelegramListener) userMention(user *tbapi.User) string {
+	if user == nil {
+		return ""
+	}
+
+	name := strings.TrimSpace(user.FirstName + " " + user.LastName)
+	if user.UserName != "" {
+		name = "@" + user.UserName
+	}
+
+	return fmt.Sprintf("[%s](tg://user?id=%d)", escapeMarkDownV1Text(strings.TrimSpace(name)), user.ID)
+}
+
+func (l *TelegramListener) isChatAllowed(fromChat int64) bool {
+	if len(l.allowedChatIDs) == 0 {
+		return false
 	}
 
 	if _, ok := l.allowedChatIDs[fromChat]; ok {
 		return true
 	}
-	for _, id := range l.TestingIDs {
-		if id == fromChat {
-			return true
-		}
-	}
+
 	return false
 }
 
