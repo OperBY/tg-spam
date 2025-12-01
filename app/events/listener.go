@@ -91,16 +91,22 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 	l.allowedChatIDs = map[int64]struct{}{}
 	if len(l.Group) == 0 {
 		log.Printf("[WARN] TELEGRAM_GROUP is empty, bot will not process group updates")
-	} else {
-		for _, grp := range l.Group {
-			chatID, getChatErr := l.getChatID(grp)
-			if getChatErr != nil {
-				return fmt.Errorf("failed to get chat ID for group %q: %w", grp, getChatErr)
-			}
-			l.allowedChatIDs[chatID] = struct{}{}
-			if l.chatID == 0 {
-				l.chatID = chatID
-			}
+		return fmt.Errorf("no TELEGRAM_GROUP provided")
+	}
+
+	for _, grp := range l.Group {
+		trimmed := strings.TrimSpace(strings.TrimPrefix(grp, "@"))
+		if trimmed == "" {
+			continue
+		}
+
+		chatID, getChatErr := l.getChatID(trimmed)
+		if getChatErr != nil {
+			return fmt.Errorf("failed to get chat ID for group %q: %w", grp, getChatErr)
+		}
+		l.allowedChatIDs[chatID] = struct{}{}
+		if l.chatID == 0 {
+			l.chatID = chatID
 		}
 	}
 
@@ -628,6 +634,9 @@ func (l *TelegramListener) handleNewChatMembers(message *tbapi.Message) {
 		if user.IsBot {
 			continue
 		}
+		if l.CaptchaManager.Active(message.Chat.ID, user.ID) {
+			continue
+		}
 		l.startCaptchaForUser(message.Chat.ID, &user)
 	}
 }
@@ -951,6 +960,7 @@ func (l *TelegramListener) sendBotResponse(resp bot.Response, chatID int64, noti
 }
 
 func (l *TelegramListener) getChatID(group string) (int64, error) {
+	group = strings.TrimSpace(strings.TrimPrefix(group, "@"))
 	chatID, err := strconv.ParseInt(group, 10, 64)
 	if err == nil {
 		return chatID, nil
