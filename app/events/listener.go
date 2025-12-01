@@ -731,8 +731,8 @@ func (l *TelegramListener) handleCaptchaCallback(query *tbapi.CallbackQuery) boo
 		}
 	case captcha.ResultFailed:
 		l.cleanupCaptchaState(chatID, query.From.ID, append(result.Messages, query.Message.MessageID)...)
-		l.banUser(chatID, query.From.ID)
-		msg := fmt.Sprintf("%s не прошёл проверку и был заблокирован.", l.userMention(query.From))
+		l.kickUser(chatID, query.From.ID)
+		msg := fmt.Sprintf("%s не прошёл проверку и был исключён из чата.", l.userMention(query.From))
 		if _, err := l.sendCaptchaNotice(chatID, query.From.ID, msg); err != nil {
 			log.Printf("[WARN] failed to send captcha fail notice: %v", err)
 		}
@@ -843,6 +843,26 @@ func (l *TelegramListener) banUser(chatID, userID int64) {
 	}
 }
 
+func (l *TelegramListener) kickUser(chatID, userID int64) {
+	if chatID == 0 || userID == 0 {
+		return
+	}
+
+	// ban to remove the user from the chat
+	if _, err := l.TbAPI.Request(tbapi.BanChatMemberConfig{ChatMemberConfig: tbapi.ChatMemberConfig{ChatConfig: tbapi.ChatConfig{ChatID: chatID}, UserID: userID}}); err != nil {
+		log.Printf("[WARN] failed to kick user %d in chat %d (ban step): %v", userID, chatID, err)
+		return
+	}
+
+	// immediately unban to allow the user to re-join later
+	if _, err := l.TbAPI.Request(tbapi.UnbanChatMemberConfig{
+		ChatMemberConfig: tbapi.ChatMemberConfig{ChatConfig: tbapi.ChatConfig{ChatID: chatID}, UserID: userID},
+		OnlyIfBanned:     false,
+	}); err != nil {
+		log.Printf("[WARN] failed to unban user %d in chat %d after kick: %v", userID, chatID, err)
+	}
+}
+
 func (l *TelegramListener) onCaptchaTimeout(chatID, userID int64) {
 	key := captchaKey{chatID: chatID, userID: userID}
 	l.captchaMu.Lock()
@@ -858,8 +878,8 @@ func (l *TelegramListener) onCaptchaTimeout(chatID, userID int64) {
 		l.deleteCaptchaMessage(chatID, msgID)
 	}
 
-	l.banUser(chatID, userID)
-	failure := fmt.Sprintf("%s не прошёл проверку вовремя и был заблокирован.", mention)
+	l.kickUser(chatID, userID)
+	failure := fmt.Sprintf("%s не прошёл проверку вовремя и был исключён из чата.", mention)
 	if _, err := l.sendCaptchaNotice(chatID, userID, failure); err != nil {
 		log.Printf("[WARN] failed to send captcha timeout notice: %v", err)
 	}

@@ -158,7 +158,7 @@ func (c *Converter) convertTableSchema(tableName, sqliteStmt string) string {
 		pgStmt = strings.ReplaceAll(pgStmt, "added BOOLEAN DEFAULT 0", "added BOOLEAN DEFAULT false")
 
 	case "approved_users":
-		// approved_users table has a UNIQUE constraint on (gid, uid)
+		// approved_users table has a UNIQUE constraint on (gid, cid, uid)
 		// no specific conversions needed here because:
 		// - The UNIQUE constraint syntax is identical in both SQLite and PostgreSQL
 		// - All other type conversions are handled by the common conversions above

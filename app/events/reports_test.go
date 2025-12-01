@@ -146,7 +146,7 @@ func TestUserReports_DirectUserReport(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			IsApprovedUserFunc: func(id int64) bool {
+			IsApprovedUserFunc: func(id int64, chatID int64) bool {
 				return true // reporter is approved
 			},
 		}
@@ -260,7 +260,7 @@ func TestUserReports_DirectUserReport(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			IsApprovedUserFunc: func(id int64) bool {
+			IsApprovedUserFunc: func(id int64, chatID int64) bool {
 				return true // reporter is approved
 			},
 		}
@@ -313,7 +313,7 @@ func TestUserReports_DirectUserReport(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			IsApprovedUserFunc: func(id int64) bool {
+			IsApprovedUserFunc: func(id int64, chatID int64) bool {
 				return true
 			},
 		}
@@ -369,7 +369,7 @@ func TestUserReports_DirectUserReport(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			IsApprovedUserFunc: func(id int64) bool {
+			IsApprovedUserFunc: func(id int64, chatID int64) bool {
 				return true
 			},
 		}
@@ -467,7 +467,7 @@ func TestUserReports_DirectUserReport(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			IsApprovedUserFunc: func(id int64) bool {
+			IsApprovedUserFunc: func(id int64, chatID int64) bool {
 				return true
 			},
 		}
@@ -513,7 +513,7 @@ func TestUserReports_DirectUserReport(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			IsApprovedUserFunc: func(id int64) bool {
+			IsApprovedUserFunc: func(id int64, chatID int64) bool {
 				return id == 222 // only user 222 is approved
 			},
 		}
@@ -561,7 +561,7 @@ func TestUserReports_DirectUserReport(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			IsApprovedUserFunc: func(id int64) bool {
+			IsApprovedUserFunc: func(id int64, chatID int64) bool {
 				return id == 222 // user 222 is approved
 			},
 		}
@@ -789,7 +789,7 @@ func TestUserReports_AutoBan(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error {
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error {
 				return nil
 			},
 			UpdateSpamFunc: func(msg string) error {
@@ -855,7 +855,7 @@ func TestUserReports_AutoBan(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error { return nil },
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error { return nil },
 			UpdateSpamFunc:         func(msg string) error { return nil },
 		}
 
@@ -912,7 +912,7 @@ func TestUserReports_AutoBan(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error { return nil },
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error { return nil },
 			UpdateSpamFunc:         func(msg string) error { return nil },
 		}
 
@@ -999,7 +999,7 @@ func TestUserReports_AutoBan(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error { return nil },
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error { return nil },
 			UpdateSpamFunc: func(msg string) error {
 				t.Error("should not update spam samples in dry mode")
 				return nil
@@ -1047,7 +1047,7 @@ func TestUserReports_AutoBan(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error { return nil },
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error { return nil },
 			UpdateSpamFunc:         func(msg string) error { return nil },
 		}
 
@@ -1723,7 +1723,7 @@ func TestUserReports_CallbackReportBan(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error { return nil },
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error { return nil },
 			UpdateSpamFunc:         func(msg string) error { return nil },
 		}
 
@@ -1783,7 +1783,7 @@ func TestUserReports_CallbackReportBan(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error { return nil },
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error { return nil },
 			UpdateSpamFunc:         func(msg string) error { return nil },
 		}
 

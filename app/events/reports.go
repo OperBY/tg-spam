@@ -66,7 +66,7 @@ func (r *userReports) DirectUserReport(ctx context.Context, update tbapi.Update)
 	}
 
 	// validate reporter is approved user
-	if !r.bot.IsApprovedUser(update.Message.From.ID) {
+	if !r.bot.IsApprovedUser(update.Message.From.ID, update.Message.Chat.ID) {
 		log.Printf("[INFO] report rejected: reporter %d (%s) not in approved list",
 			update.Message.From.ID, update.Message.From.UserName)
 		// still delete the /report command to keep chat clean
@@ -226,7 +226,7 @@ func (r *userReports) executeAutoBan(ctx context.Context, reports []storage.Repo
 		reportedUserID, reportedUserName, len(reports))
 
 	// remove user from approved list
-	if remErr := r.bot.RemoveApprovedUser(reportedUserID); remErr != nil {
+	if remErr := r.bot.RemoveApprovedUser(reportedUserID, chatID); remErr != nil {
 		log.Printf("[DEBUG] can't remove user %d from approved list: %v", reportedUserID, remErr)
 	}
 
@@ -575,7 +575,7 @@ func (r *userReports) callbackReportBan(ctx context.Context, query *tbapi.Callba
 	reportedUserName := reports[0].ReportedUserName
 
 	// remove user from approved list
-	if remErr := r.bot.RemoveApprovedUser(reportedUserID); remErr != nil {
+	if remErr := r.bot.RemoveApprovedUser(reportedUserID, chatID); remErr != nil {
 		log.Printf("[DEBUG] can't remove user %d from approved list: %v", reportedUserID, remErr)
 	}
 

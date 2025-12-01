@@ -15,7 +15,7 @@ import (
 //
 //		// make and configure a mocked tgspam.UserStorage
 //		mockedUserStorage := &UserStorageMock{
-//			DeleteFunc: func(ctx context.Context, id string) error {
+//			DeleteFunc: func(ctx context.Context, id string, chatID string) error {
 //				panic("mock out the Delete method")
 //			},
 //			ReadFunc: func(ctx context.Context) ([]approved.UserInfo, error) {
@@ -32,7 +32,7 @@ import (
 //	}
 type UserStorageMock struct {
 	// DeleteFunc mocks the Delete method.
-	DeleteFunc func(ctx context.Context, id string) error
+	DeleteFunc func(ctx context.Context, id string, chatID string) error
 
 	// ReadFunc mocks the Read method.
 	ReadFunc func(ctx context.Context) ([]approved.UserInfo, error)
@@ -48,6 +48,8 @@ type UserStorageMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID string
+			// ChatID is the chatID argument value.
+			ChatID string
 		}
 		// Read holds details about calls to the Read method.
 		Read []struct {
@@ -68,21 +70,23 @@ type UserStorageMock struct {
 }
 
 // Delete calls DeleteFunc.
-func (mock *UserStorageMock) Delete(ctx context.Context, id string) error {
+func (mock *UserStorageMock) Delete(ctx context.Context, id string, chatID string) error {
 	if mock.DeleteFunc == nil {
 		panic("UserStorageMock.DeleteFunc: method is nil but UserStorage.Delete was just called")
 	}
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx    context.Context
+		ID     string
+		ChatID string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:    ctx,
+		ID:     id,
+		ChatID: chatID,
 	}
 	mock.lockDelete.Lock()
 	mock.calls.Delete = append(mock.calls.Delete, callInfo)
 	mock.lockDelete.Unlock()
-	return mock.DeleteFunc(ctx, id)
+	return mock.DeleteFunc(ctx, id, chatID)
 }
 
 // DeleteCalls gets all the calls that were made to Delete.
@@ -90,12 +94,14 @@ func (mock *UserStorageMock) Delete(ctx context.Context, id string) error {
 //
 //	len(mockedUserStorage.DeleteCalls())
 func (mock *UserStorageMock) DeleteCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx    context.Context
+	ID     string
+	ChatID string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx    context.Context
+		ID     string
+		ChatID string
 	}
 	mock.lockDelete.RLock()
 	calls = mock.calls.Delete

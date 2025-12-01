@@ -204,7 +204,7 @@ func TestServer_routes(t *testing.T) {
 		AddApprovedUserFunc: func(user approved.UserInfo) error {
 			return nil
 		},
-		RemoveApprovedUserFunc: func(id string) error {
+		RemoveApprovedUserFunc: func(id string, chatID string) error {
 			return nil
 		},
 		GetLuaPluginNamesFunc: func() []string {
@@ -1055,7 +1055,7 @@ func TestServer_checkHandler_HTMX(t *testing.T) {
 		CheckFunc: func(req spamcheck.Request) (bool, []spamcheck.Response) {
 			return req.Msg == "spam example", []spamcheck.Response{{Spam: req.Msg == "spam example", Name: "test", Details: "result details"}}
 		},
-		RemoveApprovedUserFunc: func(id string) error {
+		RemoveApprovedUserFunc: func(id string, chatID string) error {
 			return nil
 		},
 	}

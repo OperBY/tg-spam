@@ -9,6 +9,7 @@ import (
 type UserInfo struct {
 	UserID    string    `json:"user_id"`
 	UserName  string    `json:"user_name"`
+	ChatID    string    `json:"chat_id"`
 	Timestamp time.Time `json:"timestamp"`
 	Count     int       `json:"-"`
 }

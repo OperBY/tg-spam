@@ -109,7 +109,7 @@ func (a *admin) MsgHandler(update tbapi.Update) error {
 	}
 
 	// remove user from the approved list and from storage
-	if err := a.bot.RemoveApprovedUser(info.UserID); err != nil {
+	if err := a.bot.RemoveApprovedUser(info.UserID, info.ChatID); err != nil {
 		errs = multierror.Append(errs, fmt.Errorf("failed to remove user %d from approved list: %w", info.UserID, err))
 	}
 
@@ -117,7 +117,7 @@ func (a *admin) MsgHandler(update tbapi.Update) error {
 	spamInfo := []string{}
 	// check only, don't update the storage, as all we care here is to get checks results.
 	// without checkOnly flag, it may add approved user to the storage after we removed it above.
-	resp := a.bot.OnMessage(bot.Message{Text: update.Message.Text, From: bot.User{ID: info.UserID}}, true)
+	resp := a.bot.OnMessage(bot.Message{Text: update.Message.Text, From: bot.User{ID: info.UserID}, ChatID: info.ChatID}, true)
 	spamInfoText := "**can't get spam info**"
 	for _, check := range resp.CheckResults {
 		spamInfo = append(spamInfo, "- "+escapeMarkDownV1Text(check.String()))
@@ -320,7 +320,7 @@ func (a *admin) directReport(update tbapi.Update, updateSamples bool) error {
 
 	errs := new(multierror.Error)
 	// remove user from the approved list and from storage
-	if err := a.bot.RemoveApprovedUser(origMsg.From.ID); err != nil {
+	if err := a.bot.RemoveApprovedUser(origMsg.From.ID, origMsg.Chat.ID); err != nil {
 		// error here is not critical, user may not be in the approved list if we run in paranoid mode or
 		// if not reached the threshold for approval yet
 		log.Printf("[DEBUG] can't remove user %d from approved list: %v", origMsg.From.ID, err)
@@ -329,7 +329,7 @@ func (a *admin) directReport(update tbapi.Update, updateSamples bool) error {
 	// make a message with spam info and send to admin chat
 	spamInfo := []string{}
 	// check only, don't update the storage with the new approved user as all we care here is to get checks results
-	resp := a.bot.OnMessage(bot.Message{Text: msgTxt, From: bot.User{ID: origMsg.From.ID}}, true)
+	resp := a.bot.OnMessage(bot.Message{Text: msgTxt, From: bot.User{ID: origMsg.From.ID}, ChatID: origMsg.Chat.ID}, true)
 	spamInfoText := "**can't get spam info**"
 	for _, check := range resp.CheckResults {
 		spamInfo = append(spamInfo, "- "+escapeMarkDownV1Text(check.String()))
@@ -580,7 +580,7 @@ func (a *admin) callbackUnbanConfirmed(query *tbapi.CallbackQuery) error {
 		log.Printf("[DEBUG] failed to extract username from %q: %v", query.Message.Text, err)
 		name = ""
 	}
-	if err := a.bot.AddApprovedUser(userID, name); err != nil { // name is not available here
+	if err := a.bot.AddApprovedUser(userID, name, a.primChatID); err != nil { // name is not available here
 		return fmt.Errorf("failed to add user %d to approved list: %w", userID, err)
 	}
 

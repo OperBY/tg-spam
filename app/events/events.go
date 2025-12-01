@@ -69,9 +69,9 @@ type Bot interface {
 	OnMessage(msg bot.Message, checkOnly bool) (response bot.Response)
 	UpdateSpam(msg string) error
 	UpdateHam(msg string) error
-	AddApprovedUser(id int64, name string) error
-	RemoveApprovedUser(id int64) error
-	IsApprovedUser(userID int64) bool
+	AddApprovedUser(id int64, name string, chatID int64) error
+	RemoveApprovedUser(id int64, chatID int64) error
+	IsApprovedUser(userID int64, chatID int64) bool
 }
 
 // escapeMarkDownV1Text escapes special characters used in Telegram's MarkdownV1 parse mode.

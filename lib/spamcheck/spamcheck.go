@@ -10,6 +10,7 @@ type Request struct {
 	Msg       string   `json:"msg"`        // message to check
 	UserID    string   `json:"user_id"`    // user id
 	UserName  string   `json:"user_name"`  // user name
+	ChatID    string   `json:"chat_id"`    // chat id where the message was sent
 	Meta      MetaData `json:"meta"`       // meta-info, provided by the client
 	CheckOnly bool     `json:"check_only"` // if true, only check the message, do not write newly approved user to the database
 }
@@ -27,8 +28,8 @@ type MetaData struct {
 }
 
 func (r *Request) String() string {
-	return fmt.Sprintf("msg:%q, user:%q, id:%s, images:%d, links:%d, mentions:%d, has_video:%v, has_audio:%v, has_forward:%v, has_keyboard:%v",
-		r.Msg, r.UserName, r.UserID, r.Meta.Images, r.Meta.Links, r.Meta.Mentions, r.Meta.HasVideo, r.Meta.HasAudio, r.Meta.HasForward, r.Meta.HasKeyboard)
+	return fmt.Sprintf("msg:%q, user:%q, id:%s, chat:%s, images:%d, links:%d, mentions:%d, has_video:%v, has_audio:%v, has_forward:%v, has_keyboard:%v",
+		r.Msg, r.UserName, r.UserID, r.ChatID, r.Meta.Images, r.Meta.Links, r.Meta.Mentions, r.Meta.HasVideo, r.Meta.HasAudio, r.Meta.HasForward, r.Meta.HasKeyboard)
 }
 
 // Response is a result of spam check.

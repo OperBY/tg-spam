@@ -223,7 +223,7 @@ func TestAdmin_DirectCommands(t *testing.T) {
 		}
 
 		botMock := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error {
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error {
 				return nil
 			},
 			OnMessageFunc: func(msg bot.Message, checkOnly bool) bot.Response {
@@ -806,7 +806,7 @@ func TestAdmin_MsgHandlerWithEmptyText(t *testing.T) {
 			t.Logf("update-spam: %s", msg)
 			return nil
 		},
-		RemoveApprovedUserFunc: func(id int64) error {
+		RemoveApprovedUserFunc: func(id int64, chatID int64) error {
 			return nil
 		},
 	}
@@ -893,7 +893,7 @@ func TestAdmin_MsgHandler(t *testing.T) {
 		}
 
 		botMock := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error {
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error {
 				return nil
 			},
 			OnMessageFunc: func(msg bot.Message, checkOnly bool) bot.Response {
@@ -959,7 +959,7 @@ func TestAdmin_MsgHandler(t *testing.T) {
 		}
 
 		botMock := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error {
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error {
 				return nil
 			},
 			OnMessageFunc: func(msg bot.Message, checkOnly bool) bot.Response {
@@ -1074,7 +1074,7 @@ func TestAdmin_MsgHandler(t *testing.T) {
 		}
 
 		botMock := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error {
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error {
 				return nil
 			},
 			OnMessageFunc: func(msg bot.Message, checkOnly bool) bot.Response {
@@ -1145,7 +1145,7 @@ func TestAdmin_MsgHandler(t *testing.T) {
 		}
 
 		botMock := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error {
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error {
 				return fmt.Errorf("failed to remove user")
 			},
 			OnMessageFunc: func(msg bot.Message, checkOnly bool) bot.Response {
@@ -1224,7 +1224,7 @@ func TestAdmin_DirectSpamReport_ImageOnly(t *testing.T) {
 	}
 
 	botMock := &mocks.BotMock{
-		RemoveApprovedUserFunc: func(id int64) error {
+		RemoveApprovedUserFunc: func(id int64, chatID int64) error {
 			return nil
 		},
 		OnMessageFunc: func(msg bot.Message, checkOnly bool) bot.Response {
@@ -1303,7 +1303,7 @@ func TestAdmin_DirectReportWithAggressiveCleanup(t *testing.T) {
 					},
 				}
 			},
-			RemoveApprovedUserFunc: func(id int64) error {
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error {
 				return nil
 			},
 			UpdateSpamFunc: func(msg string) error {

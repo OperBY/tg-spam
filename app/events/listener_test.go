@@ -753,7 +753,7 @@ func TestTelegramListener_DoWithForwarded(t *testing.T) {
 			t.Logf("update-spam: %s", msg)
 			return nil
 		},
-		RemoveApprovedUserFunc: func(id int64) error { return nil },
+		RemoveApprovedUserFunc: func(id int64, chatID int64) error { return nil },
 	}
 
 	locator, teardown := prepTestLocator(t)
@@ -829,7 +829,7 @@ func TestTelegramListener_DoWithDirectSpamReport(t *testing.T) {
 		GetChatAdministratorsFunc: func(config tbapi.ChatAdministratorsConfig) ([]tbapi.ChatMember, error) { return nil, nil },
 	}
 	botMock := &mocks.BotMock{
-		RemoveApprovedUserFunc: func(id int64) error {
+		RemoveApprovedUserFunc: func(id int64, chatID int64) error {
 			return nil
 		},
 		OnMessageFunc: func(msg bot.Message, checkOnly bool) bot.Response {
@@ -922,7 +922,7 @@ func TestTelegramListener_DoWithDirectWarnReport(t *testing.T) {
 		GetChatAdministratorsFunc: func(config tbapi.ChatAdministratorsConfig) ([]tbapi.ChatMember, error) { return nil, nil },
 	}
 	b := &mocks.BotMock{
-		RemoveApprovedUserFunc: func(id int64) error {
+		RemoveApprovedUserFunc: func(id int64, chatID int64) error {
 			return nil
 		},
 		OnMessageFunc: func(msg bot.Message, checkOnly bool) bot.Response {
@@ -1015,7 +1015,7 @@ func TestTelegramListener_DoWithAdminUnBan(t *testing.T) {
 		UpdateHamFunc: func(msg string) error {
 			return nil
 		},
-		AddApprovedUserFunc: func(id int64, name string) error { return nil },
+		AddApprovedUserFunc: func(id int64, name string, chatID int64) error { return nil },
 	}
 
 	locator, teardown := prepTestLocator(t)
@@ -1088,7 +1088,7 @@ func TestTelegramListener_DoWithAdminSoftUnBan(t *testing.T) {
 		UpdateHamFunc: func(msg string) error {
 			return nil
 		},
-		AddApprovedUserFunc: func(id int64, name string) error { return nil },
+		AddApprovedUserFunc: func(id int64, name string, chatID int64) error { return nil },
 	}
 
 	locator, teardown := prepTestLocator(t)
@@ -1164,7 +1164,7 @@ func TestTelegramListener_DoWithAdminSoftUnBanEmptyText(t *testing.T) {
 		UpdateHamFunc: func(msg string) error {
 			return nil
 		},
-		AddApprovedUserFunc: func(id int64, name string) error { return nil },
+		AddApprovedUserFunc: func(id int64, name string, chatID int64) error { return nil },
 	}
 
 	locator, teardown := prepTestLocator(t)
@@ -1239,7 +1239,7 @@ func TestTelegramListener_DoWithAdminUnBan_Training(t *testing.T) {
 		UpdateHamFunc: func(msg string) error {
 			return nil
 		},
-		AddApprovedUserFunc: func(id int64, name string) error { return nil },
+		AddApprovedUserFunc: func(id int64, name string, chatID int64) error { return nil },
 	}
 
 	locator, teardown := prepTestLocator(t)
@@ -1311,7 +1311,7 @@ func TestTelegramListener_DoWithAdminUnBanConfirmation(t *testing.T) {
 		UpdateHamFunc: func(msg string) error {
 			return nil
 		},
-		AddApprovedUserFunc: func(id int64, name string) error { return nil },
+		AddApprovedUserFunc: func(id int64, name string, chatID int64) error { return nil },
 	}
 
 	locator, teardown := prepTestLocator(t)
@@ -1380,7 +1380,7 @@ func TestTelegramListener_DoWithAdminUnbanDecline(t *testing.T) {
 		UpdateSpamFunc: func(msg string) error {
 			return nil
 		},
-		AddApprovedUserFunc: func(id int64, name string) error { return nil },
+		AddApprovedUserFunc: func(id int64, name string, chatID int64) error { return nil },
 	}
 
 	locator, teardown := prepTestLocator(t)
@@ -1451,7 +1451,7 @@ func TestTelegramListener_DoWithAdminBanConfirmedTraining(t *testing.T) {
 		UpdateSpamFunc: func(msg string) error {
 			return nil
 		},
-		AddApprovedUserFunc: func(id int64, name string) error { return nil },
+		AddApprovedUserFunc: func(id int64, name string, chatID int64) error { return nil },
 	}
 
 	locator, teardown := prepTestLocator(t)
@@ -2639,7 +2639,7 @@ func TestTelegramListener_CallbackRouting(t *testing.T) {
 		}
 
 		botMock := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(id int64) error { return nil },
+			RemoveApprovedUserFunc: func(id int64, chatID int64) error { return nil },
 			UpdateSpamFunc:         func(msg string) error { return nil },
 		}
 
@@ -2901,7 +2901,7 @@ func TestTelegramListener_CallbackRouting(t *testing.T) {
 
 		botMock := &mocks.BotMock{
 			UpdateHamFunc:       func(msg string) error { return nil },
-			AddApprovedUserFunc: func(id int64, name string) error { return nil },
+			AddApprovedUserFunc: func(id int64, name string, chatID int64) error { return nil },
 		}
 		locator, teardown := prepTestLocator(t)
 		defer teardown()

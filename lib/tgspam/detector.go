@@ -109,7 +109,7 @@ type SampleUpdater interface {
 type UserStorage interface {
 	Read(ctx context.Context) ([]approved.UserInfo, error) // read approved users from storage
 	Write(ctx context.Context, au approved.UserInfo) error // write approved user to storage
-	Delete(ctx context.Context, id string) error           // delete approved user from storage
+	Delete(ctx context.Context, id, chatID string) error   // delete approved user from storage
 }
 
 // HTTPClient is an interface for http client, satisfied by http.Client.
@@ -163,7 +163,6 @@ func NewDetector(p Config) *Detector {
 
 // Check checks if a given message is spam. Returns true if spam and also returns a list of check results.
 func (d *Detector) Check(req spamcheck.Request) (spam bool, cr []spamcheck.Response) {
-
 	isSpamDetected := func(cr []spamcheck.Response) bool {
 		for _, r := range cr {
 			if r.Spam {
@@ -176,6 +175,7 @@ func (d *Detector) Check(req spamcheck.Request) (spam bool, cr []spamcheck.Respo
 	cleanMsg := d.cleanText(req.Msg)
 	d.lock.RLock()
 	defer d.lock.RUnlock()
+	approvedKey := d.makeApprovedKey(req.ChatID, req.UserID)
 
 	// check for duplicate messages FIRST - behavioral check that applies to all users
 	if d.duplicateDetector != nil {
@@ -183,7 +183,7 @@ func (d *Detector) Check(req spamcheck.Request) (spam bool, cr []spamcheck.Respo
 	}
 
 	// approved user don't need content analysis checks, but only skip if no spam detected by behavioral checks
-	if req.UserID != "" && d.FirstMessageOnly && !isSpamDetected(cr) && d.approvedUsers[req.UserID].Count >= d.FirstMessagesCount {
+	if req.UserID != "" && d.FirstMessageOnly && !isSpamDetected(cr) && d.approvedUsers[approvedKey].Count >= d.FirstMessagesCount {
 		// include previous check results (e.g., duplicate check) in the response
 		return false, append(cr, spamcheck.Response{Name: "pre-approved", Spam: false, Details: "user already approved"})
 	}
@@ -305,12 +305,13 @@ func (d *Detector) Check(req spamcheck.Request) (spam bool, cr []spamcheck.Respo
 		ctx, cancel := d.ctxWithStoreTimeout()
 		defer cancel()
 		au := approved.UserInfo{
-			Count:     d.approvedUsers[req.UserID].Count + 1,
+			Count:     d.approvedUsers[approvedKey].Count + 1,
 			UserID:    req.UserID,
 			UserName:  req.UserName,
+			ChatID:    req.ChatID,
 			Timestamp: time.Now(),
 		}
-		d.approvedUsers[req.UserID] = au // update approved users status in memory
+		d.approvedUsers[approvedKey] = au // update approved users status in memory
 		if d.userStorage != nil {
 			// update approved users status in storage
 			_ = d.userStorage.Write(ctx, au) // ignore error, failed to write to storage is not critical here
@@ -419,7 +420,7 @@ func (d *Detector) WithUserStorage(storage UserStorage) (count int, err error) {
 	}
 	for _, user := range users {
 		user.Count = d.FirstMessagesCount + 1 // +1 to skip first message check if count is 0
-		d.approvedUsers[user.UserID] = user
+		d.approvedUsers[d.makeApprovedKey(user.ChatID, user.UserID)] = user
 	}
 	return len(users), nil
 }
@@ -451,11 +452,11 @@ func (d *Detector) ApprovedUsers() (res []approved.UserInfo) {
 
 // IsApprovedUser checks if a given user ID is approved.
 // It uses memory cache for approved users and compares the count of messages sent by the user.
-func (d *Detector) IsApprovedUser(userID string) bool {
+func (d *Detector) IsApprovedUser(userID, chatID string) bool {
 	d.lock.RLock()
 	defer d.lock.RUnlock()
 
-	ui, ok := d.approvedUsers[userID]
+	ui, ok := d.approvedUsers[d.makeApprovedKey(chatID, userID)]
 	if !ok {
 		return false
 	}
@@ -470,9 +471,11 @@ func (d *Detector) AddApprovedUser(user approved.UserInfo) error {
 	if ts.IsZero() {
 		ts = time.Now()
 	}
-	d.approvedUsers[user.UserID] = approved.UserInfo{
+	key := d.makeApprovedKey(user.ChatID, user.UserID)
+	d.approvedUsers[key] = approved.UserInfo{
 		UserID:    user.UserID,
 		UserName:  user.UserName,
+		ChatID:    user.ChatID,
 		Count:     d.FirstMessagesCount + 1, // +1 to skip first message check if count is 0
 		Timestamp: ts,
 	}
@@ -488,19 +491,26 @@ func (d *Detector) AddApprovedUser(user approved.UserInfo) error {
 }
 
 // RemoveApprovedUser removes approved user for given IDs
-func (d *Detector) RemoveApprovedUser(id string) error {
+func (d *Detector) RemoveApprovedUser(id, chatID string) error {
 	d.lock.Lock()
-	delete(d.approvedUsers, id)
+	delete(d.approvedUsers, d.makeApprovedKey(chatID, id))
 	d.lock.Unlock()
 
 	if d.userStorage != nil {
 		ctx, cancel := d.ctxWithStoreTimeout()
 		defer cancel()
-		if err := d.userStorage.Delete(ctx, id); err != nil {
+		if err := d.userStorage.Delete(ctx, id, chatID); err != nil {
 			return fmt.Errorf("failed to delete approved user %s from storage: %w", id, err)
 		}
 	}
 	return nil
+}
+
+func (d *Detector) makeApprovedKey(chatID, userID string) string {
+	if chatID == "" {
+		return userID
+	}
+	return fmt.Sprintf("%s:%s", chatID, userID)
 }
 
 // GetLuaPluginNames returns the list of available Lua plugin names.

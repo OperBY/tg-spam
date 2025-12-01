@@ -48,9 +48,9 @@ type Detector interface {
 	RemoveHam(msg string) error
 	RemoveSpam(msg string) error
 	AddApprovedUser(user approved.UserInfo) error
-	RemoveApprovedUser(id string) error
+	RemoveApprovedUser(id, chatID string) error
 	ApprovedUsers() (res []approved.UserInfo)
-	IsApprovedUser(userID string) bool
+	IsApprovedUser(userID, chatID string) bool
 	GetLuaPluginNames() []string // Returns the list of available Lua plugin names
 }
 
@@ -79,7 +79,7 @@ func (s *SpamFilter) OnMessage(msg Message, checkOnly bool) (response Response) 
 	displayUsername := DisplayName(msg)
 
 	spamReq := spamcheck.Request{Msg: msg.Text, CheckOnly: checkOnly,
-		UserID: strconv.FormatInt(msg.From.ID, 10), UserName: msg.From.Username}
+		UserID: strconv.FormatInt(msg.From.ID, 10), UserName: msg.From.Username, ChatID: strconv.FormatInt(msg.ChatID, 10)}
 	if msg.Image != nil {
 		spamReq.Meta.Images = 1
 	}
@@ -150,23 +150,23 @@ func (s *SpamFilter) UpdateHam(msg string) error {
 }
 
 // IsApprovedUser checks if user is in the list of approved users
-func (s *SpamFilter) IsApprovedUser(userID int64) bool {
-	return s.Detector.IsApprovedUser(fmt.Sprintf("%d", userID))
+func (s *SpamFilter) IsApprovedUser(userID int64, chatID int64) bool {
+	return s.Detector.IsApprovedUser(fmt.Sprintf("%d", userID), fmt.Sprintf("%d", chatID))
 }
 
 // AddApprovedUser adds users to the list of approved users, to both the detector and the storage
-func (s *SpamFilter) AddApprovedUser(id int64, name string) error {
-	log.Printf("[INFO] add aproved user: id:%d, name:%q", id, name)
-	if err := s.Detector.AddApprovedUser(approved.UserInfo{UserID: fmt.Sprintf("%d", id), UserName: name}); err != nil {
+func (s *SpamFilter) AddApprovedUser(id int64, name string, chatID int64) error {
+	log.Printf("[INFO] add aproved user: id:%d, chat:%d, name:%q", id, chatID, name)
+	if err := s.Detector.AddApprovedUser(approved.UserInfo{UserID: fmt.Sprintf("%d", id), UserName: name, ChatID: fmt.Sprintf("%d", chatID)}); err != nil {
 		return fmt.Errorf("failed to write approved user to storage: %w", err)
 	}
 	return nil
 }
 
 // RemoveApprovedUser removes users from the list of approved users in both the detector and the storage
-func (s *SpamFilter) RemoveApprovedUser(id int64) error {
-	log.Printf("[INFO] remove aproved user: %d", id)
-	if err := s.Detector.RemoveApprovedUser(fmt.Sprintf("%d", id)); err != nil {
+func (s *SpamFilter) RemoveApprovedUser(id int64, chatID int64) error {
+	log.Printf("[INFO] remove aproved user: %d, chat:%d", id, chatID)
+	if err := s.Detector.RemoveApprovedUser(fmt.Sprintf("%d", id), fmt.Sprintf("%d", chatID)); err != nil {
 		return fmt.Errorf("failed to delete approved user from storage: %w", err)
 	}
 	return nil

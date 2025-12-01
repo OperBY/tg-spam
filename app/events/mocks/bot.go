@@ -40,16 +40,16 @@ import (
 //	}
 type BotMock struct {
 	// AddApprovedUserFunc mocks the AddApprovedUser method.
-	AddApprovedUserFunc func(id int64, name string) error
+	AddApprovedUserFunc func(id int64, name string, chatID int64) error
 
 	// IsApprovedUserFunc mocks the IsApprovedUser method.
-	IsApprovedUserFunc func(userID int64) bool
+	IsApprovedUserFunc func(userID int64, chatID int64) bool
 
 	// OnMessageFunc mocks the OnMessage method.
 	OnMessageFunc func(msg bot.Message, checkOnly bool) bot.Response
 
 	// RemoveApprovedUserFunc mocks the RemoveApprovedUser method.
-	RemoveApprovedUserFunc func(id int64) error
+	RemoveApprovedUserFunc func(id int64, chatID int64) error
 
 	// UpdateHamFunc mocks the UpdateHam method.
 	UpdateHamFunc func(msg string) error
@@ -65,11 +65,15 @@ type BotMock struct {
 			ID int64
 			// Name is the name argument value.
 			Name string
+			// ChatID is the chatID argument value.
+			ChatID int64
 		}
 		// IsApprovedUser holds details about calls to the IsApprovedUser method.
 		IsApprovedUser []struct {
 			// UserID is the userID argument value.
 			UserID int64
+			// ChatID is the chatID argument value.
+			ChatID int64
 		}
 		// OnMessage holds details about calls to the OnMessage method.
 		OnMessage []struct {
@@ -82,6 +86,8 @@ type BotMock struct {
 		RemoveApprovedUser []struct {
 			// ID is the id argument value.
 			ID int64
+			// ChatID is the chatID argument value.
+			ChatID int64
 		}
 		// UpdateHam holds details about calls to the UpdateHam method.
 		UpdateHam []struct {
@@ -103,21 +109,23 @@ type BotMock struct {
 }
 
 // AddApprovedUser calls AddApprovedUserFunc.
-func (mock *BotMock) AddApprovedUser(id int64, name string) error {
+func (mock *BotMock) AddApprovedUser(id int64, name string, chatID int64) error {
 	if mock.AddApprovedUserFunc == nil {
 		panic("BotMock.AddApprovedUserFunc: method is nil but Bot.AddApprovedUser was just called")
 	}
 	callInfo := struct {
-		ID   int64
-		Name string
+		ID     int64
+		Name   string
+		ChatID int64
 	}{
-		ID:   id,
-		Name: name,
+		ID:     id,
+		Name:   name,
+		ChatID: chatID,
 	}
 	mock.lockAddApprovedUser.Lock()
 	mock.calls.AddApprovedUser = append(mock.calls.AddApprovedUser, callInfo)
 	mock.lockAddApprovedUser.Unlock()
-	return mock.AddApprovedUserFunc(id, name)
+	return mock.AddApprovedUserFunc(id, name, chatID)
 }
 
 // AddApprovedUserCalls gets all the calls that were made to AddApprovedUser.
@@ -125,12 +133,14 @@ func (mock *BotMock) AddApprovedUser(id int64, name string) error {
 //
 //	len(mockedBot.AddApprovedUserCalls())
 func (mock *BotMock) AddApprovedUserCalls() []struct {
-	ID   int64
-	Name string
+	ID     int64
+	Name   string
+	ChatID int64
 } {
 	var calls []struct {
-		ID   int64
-		Name string
+		ID     int64
+		Name   string
+		ChatID int64
 	}
 	mock.lockAddApprovedUser.RLock()
 	calls = mock.calls.AddApprovedUser
@@ -146,19 +156,21 @@ func (mock *BotMock) ResetAddApprovedUserCalls() {
 }
 
 // IsApprovedUser calls IsApprovedUserFunc.
-func (mock *BotMock) IsApprovedUser(userID int64) bool {
+func (mock *BotMock) IsApprovedUser(userID int64, chatID int64) bool {
 	if mock.IsApprovedUserFunc == nil {
 		panic("BotMock.IsApprovedUserFunc: method is nil but Bot.IsApprovedUser was just called")
 	}
 	callInfo := struct {
 		UserID int64
+		ChatID int64
 	}{
 		UserID: userID,
+		ChatID: chatID,
 	}
 	mock.lockIsApprovedUser.Lock()
 	mock.calls.IsApprovedUser = append(mock.calls.IsApprovedUser, callInfo)
 	mock.lockIsApprovedUser.Unlock()
-	return mock.IsApprovedUserFunc(userID)
+	return mock.IsApprovedUserFunc(userID, chatID)
 }
 
 // IsApprovedUserCalls gets all the calls that were made to IsApprovedUser.
@@ -167,9 +179,11 @@ func (mock *BotMock) IsApprovedUser(userID int64) bool {
 //	len(mockedBot.IsApprovedUserCalls())
 func (mock *BotMock) IsApprovedUserCalls() []struct {
 	UserID int64
+	ChatID int64
 } {
 	var calls []struct {
 		UserID int64
+		ChatID int64
 	}
 	mock.lockIsApprovedUser.RLock()
 	calls = mock.calls.IsApprovedUser
@@ -228,19 +242,21 @@ func (mock *BotMock) ResetOnMessageCalls() {
 }
 
 // RemoveApprovedUser calls RemoveApprovedUserFunc.
-func (mock *BotMock) RemoveApprovedUser(id int64) error {
+func (mock *BotMock) RemoveApprovedUser(id int64, chatID int64) error {
 	if mock.RemoveApprovedUserFunc == nil {
 		panic("BotMock.RemoveApprovedUserFunc: method is nil but Bot.RemoveApprovedUser was just called")
 	}
 	callInfo := struct {
-		ID int64
+		ID     int64
+		ChatID int64
 	}{
-		ID: id,
+		ID:     id,
+		ChatID: chatID,
 	}
 	mock.lockRemoveApprovedUser.Lock()
 	mock.calls.RemoveApprovedUser = append(mock.calls.RemoveApprovedUser, callInfo)
 	mock.lockRemoveApprovedUser.Unlock()
-	return mock.RemoveApprovedUserFunc(id)
+	return mock.RemoveApprovedUserFunc(id, chatID)
 }
 
 // RemoveApprovedUserCalls gets all the calls that were made to RemoveApprovedUser.
@@ -248,10 +264,12 @@ func (mock *BotMock) RemoveApprovedUser(id int64) error {
 //
 //	len(mockedBot.RemoveApprovedUserCalls())
 func (mock *BotMock) RemoveApprovedUserCalls() []struct {
-	ID int64
+	ID     int64
+	ChatID int64
 } {
 	var calls []struct {
-		ID int64
+		ID     int64
+		ChatID int64
 	}
 	mock.lockRemoveApprovedUser.RLock()
 	calls = mock.calls.RemoveApprovedUser

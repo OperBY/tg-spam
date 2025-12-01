@@ -183,6 +183,12 @@ func TestSpamFilter_OnMessage(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.message.ChatID == 0 {
+				tc.message.ChatID = 1
+			}
+			if tc.wantRequest != (spamcheck.Request{}) && tc.wantRequest.ChatID == "" {
+				tc.wantRequest.ChatID = strconv.FormatInt(tc.message.ChatID, 10)
+			}
 			det := &mocks.DetectorMock{
 				CheckFunc: func(req spamcheck.Request) (bool, []spamcheck.Response) {
 					if tc.wantRequest != (spamcheck.Request{}) {
@@ -363,16 +369,19 @@ func TestSpamFilter_ApprovedUsers(t *testing.T) {
 					}
 					assert.Equal(t, strconv.FormatInt(tc.userID, 10), user.UserID)
 					assert.Equal(t, tc.userName, user.UserName)
+					assert.Equal(t, "1", user.ChatID)
 					return nil
 				},
-				RemoveApprovedUserFunc: func(id string) error {
+				RemoveApprovedUserFunc: func(id string, chatID string) error {
 					if tc.operationErr != nil {
 						return tc.operationErr
 					}
 					assert.Equal(t, strconv.FormatInt(tc.userID, 10), id)
+					assert.Equal(t, "1", chatID)
 					return nil
 				},
-				IsApprovedUserFunc: func(userID string) bool {
+				IsApprovedUserFunc: func(userID string, chatID string) bool {
+					assert.Equal(t, "1", chatID)
 					return userID == strconv.FormatInt(tc.userID, 10)
 				},
 			}
@@ -401,9 +410,9 @@ func TestSpamFilter_ApprovedUsers(t *testing.T) {
 			var err error
 			switch tc.operation {
 			case "add":
-				err = s.AddApprovedUser(tc.userID, tc.userName)
+				err = s.AddApprovedUser(tc.userID, tc.userName, 1)
 			case "remove":
-				err = s.RemoveApprovedUser(tc.userID)
+				err = s.RemoveApprovedUser(tc.userID, 1)
 			}
 
 			if tc.expectError {
@@ -413,7 +422,7 @@ func TestSpamFilter_ApprovedUsers(t *testing.T) {
 			assert.NoError(t, err)
 
 			// check IsApprovedUser
-			result := s.IsApprovedUser(tc.userID)
+			result := s.IsApprovedUser(tc.userID, 1)
 			if tc.operation == "add" && !tc.expectError {
 				assert.True(t, result)
 			}
@@ -604,14 +613,15 @@ func TestSpamFilter_IsApprovedUser(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			det := &mocks.DetectorMock{
-				IsApprovedUserFunc: func(userID string) bool {
+				IsApprovedUserFunc: func(userID string, chatID string) bool {
 					assert.Equal(t, tc.expectedCall, userID)
+					assert.Equal(t, "1", chatID)
 					return tc.want
 				},
 			}
 
 			s := NewSpamFilter(det, SpamConfig{})
-			got := s.IsApprovedUser(tc.userID)
+			got := s.IsApprovedUser(tc.userID, 1)
 			assert.Equal(t, tc.want, got)
 			assert.Equal(t, 1, len(det.IsApprovedUserCalls()))
 		})

@@ -73,7 +73,7 @@ type DetectorMock struct {
 	GetLuaPluginNamesFunc func() []string
 
 	// IsApprovedUserFunc mocks the IsApprovedUser method.
-	IsApprovedUserFunc func(userID string) bool
+	IsApprovedUserFunc func(userID string, chatID string) bool
 
 	// LoadSamplesFunc mocks the LoadSamples method.
 	LoadSamplesFunc func(exclReader io.Reader, spamReaders []io.Reader, hamReaders []io.Reader) (tgspam.LoadResult, error)
@@ -82,7 +82,7 @@ type DetectorMock struct {
 	LoadStopWordsFunc func(readers ...io.Reader) (tgspam.LoadResult, error)
 
 	// RemoveApprovedUserFunc mocks the RemoveApprovedUser method.
-	RemoveApprovedUserFunc func(id string) error
+	RemoveApprovedUserFunc func(id string, chatID string) error
 
 	// RemoveHamFunc mocks the RemoveHam method.
 	RemoveHamFunc func(msg string) error
@@ -118,6 +118,8 @@ type DetectorMock struct {
 		IsApprovedUser []struct {
 			// UserID is the userID argument value.
 			UserID string
+			// ChatID is the chatID argument value.
+			ChatID string
 		}
 		// LoadSamples holds details about calls to the LoadSamples method.
 		LoadSamples []struct {
@@ -137,6 +139,8 @@ type DetectorMock struct {
 		RemoveApprovedUser []struct {
 			// ID is the id argument value.
 			ID string
+			// ChatID is the chatID argument value.
+			ChatID string
 		}
 		// RemoveHam holds details about calls to the RemoveHam method.
 		RemoveHam []struct {
@@ -320,19 +324,21 @@ func (mock *DetectorMock) ResetGetLuaPluginNamesCalls() {
 }
 
 // IsApprovedUser calls IsApprovedUserFunc.
-func (mock *DetectorMock) IsApprovedUser(userID string) bool {
+func (mock *DetectorMock) IsApprovedUser(userID string, chatID string) bool {
 	if mock.IsApprovedUserFunc == nil {
 		panic("DetectorMock.IsApprovedUserFunc: method is nil but Detector.IsApprovedUser was just called")
 	}
 	callInfo := struct {
 		UserID string
+		ChatID string
 	}{
 		UserID: userID,
+		ChatID: chatID,
 	}
 	mock.lockIsApprovedUser.Lock()
 	mock.calls.IsApprovedUser = append(mock.calls.IsApprovedUser, callInfo)
 	mock.lockIsApprovedUser.Unlock()
-	return mock.IsApprovedUserFunc(userID)
+	return mock.IsApprovedUserFunc(userID, chatID)
 }
 
 // IsApprovedUserCalls gets all the calls that were made to IsApprovedUser.
@@ -341,9 +347,11 @@ func (mock *DetectorMock) IsApprovedUser(userID string) bool {
 //	len(mockedDetector.IsApprovedUserCalls())
 func (mock *DetectorMock) IsApprovedUserCalls() []struct {
 	UserID string
+	ChatID string
 } {
 	var calls []struct {
 		UserID string
+		ChatID string
 	}
 	mock.lockIsApprovedUser.RLock()
 	calls = mock.calls.IsApprovedUser
@@ -445,19 +453,21 @@ func (mock *DetectorMock) ResetLoadStopWordsCalls() {
 }
 
 // RemoveApprovedUser calls RemoveApprovedUserFunc.
-func (mock *DetectorMock) RemoveApprovedUser(id string) error {
+func (mock *DetectorMock) RemoveApprovedUser(id string, chatID string) error {
 	if mock.RemoveApprovedUserFunc == nil {
 		panic("DetectorMock.RemoveApprovedUserFunc: method is nil but Detector.RemoveApprovedUser was just called")
 	}
 	callInfo := struct {
-		ID string
+		ID     string
+		ChatID string
 	}{
-		ID: id,
+		ID:     id,
+		ChatID: chatID,
 	}
 	mock.lockRemoveApprovedUser.Lock()
 	mock.calls.RemoveApprovedUser = append(mock.calls.RemoveApprovedUser, callInfo)
 	mock.lockRemoveApprovedUser.Unlock()
-	return mock.RemoveApprovedUserFunc(id)
+	return mock.RemoveApprovedUserFunc(id, chatID)
 }
 
 // RemoveApprovedUserCalls gets all the calls that were made to RemoveApprovedUser.
@@ -465,10 +475,12 @@ func (mock *DetectorMock) RemoveApprovedUser(id string) error {
 //
 //	len(mockedDetector.RemoveApprovedUserCalls())
 func (mock *DetectorMock) RemoveApprovedUserCalls() []struct {
-	ID string
+	ID     string
+	ChatID string
 } {
 	var calls []struct {
-		ID string
+		ID     string
+		ChatID string
 	}
 	mock.lockRemoveApprovedUser.RLock()
 	calls = mock.calls.RemoveApprovedUser

@@ -2146,7 +2146,7 @@ func TestDetector_ApprovedUsers(t *testing.T) {
 		assert.Equal(t, true, isSpam)
 		require.Len(t, info, 1)
 		assert.Equal(t, "stopword", info[0].Name)
-		assert.False(t, d.IsApprovedUser("999"))
+		assert.False(t, d.IsApprovedUser("999", ""))
 		assert.Equal(t, 1, len(mockUserStore.ReadCalls()))
 		assert.Equal(t, 0, len(mockUserStore.WriteCalls()))
 		assert.Equal(t, 0, len(mockUserStore.DeleteCalls()))
@@ -2165,7 +2165,7 @@ func TestDetector_ApprovedUsers(t *testing.T) {
 		assert.Equal(t, false, isSpam)
 		require.Len(t, info, 1)
 		assert.Equal(t, "pre-approved", info[0].Name)
-		assert.True(t, d.IsApprovedUser("123"))
+		assert.True(t, d.IsApprovedUser("123", ""))
 	})
 
 	t.Run("user pre-approved with count, spam check avoided", func(t *testing.T) {
@@ -2181,7 +2181,7 @@ func TestDetector_ApprovedUsers(t *testing.T) {
 		assert.Equal(t, false, isSpam)
 		require.Len(t, info, 1)
 		assert.Equal(t, "pre-approved", info[0].Name)
-		assert.True(t, d.IsApprovedUser("123"))
+		assert.True(t, d.IsApprovedUser("123", ""))
 	})
 
 	t.Run("remove user with store", func(t *testing.T) {
@@ -2200,17 +2200,17 @@ func TestDetector_ApprovedUsers(t *testing.T) {
 		assert.Equal(t, false, isSpam)
 		require.Len(t, info, 1)
 		assert.Equal(t, "pre-approved", info[0].Name)
-		assert.True(t, d.IsApprovedUser("999"))
+		assert.True(t, d.IsApprovedUser("999", ""))
 		assert.Equal(t, 1, len(mockUserStore.WriteCalls()))
 		assert.Equal(t, "999", mockUserStore.WriteCalls()[0].Au.UserID)
 
-		d.RemoveApprovedUser("123")
+		d.RemoveApprovedUser("123", "")
 		isSpam, info = d.Check(spamcheck.Request{Msg: "Hello, how are you my friend? buy cryptocurrency now!", UserID: "123"})
 		t.Logf("%+v", info)
 		assert.Equal(t, true, isSpam)
 		require.Len(t, info, 1)
 		assert.Equal(t, "stopword", info[0].Name)
-		assert.False(t, d.IsApprovedUser("123"))
+		assert.False(t, d.IsApprovedUser("123", ""))
 		assert.Equal(t, 1, len(mockUserStore.DeleteCalls()))
 		assert.Equal(t, "123", mockUserStore.DeleteCalls()[0].ID)
 	})
@@ -2227,15 +2227,15 @@ func TestDetector_ApprovedUsers(t *testing.T) {
 		assert.Equal(t, false, isSpam)
 		require.Len(t, info, 1)
 		assert.Equal(t, "pre-approved", info[0].Name)
-		assert.True(t, d.IsApprovedUser("123"))
+		assert.True(t, d.IsApprovedUser("123", ""))
 
-		d.RemoveApprovedUser("123")
+		d.RemoveApprovedUser("123", "")
 		isSpam, info = d.Check(spamcheck.Request{Msg: "Hello, how are you my friend? buy cryptocurrency now!", UserID: "123"})
 		t.Logf("%+v", info)
 		assert.Equal(t, true, isSpam)
 		require.Len(t, info, 1)
 		assert.Equal(t, "stopword", info[0].Name)
-		assert.False(t, d.IsApprovedUser("123"))
+		assert.False(t, d.IsApprovedUser("123", ""))
 		assert.Equal(t, 0, len(mockUserStore.WriteCalls()))
 		assert.Equal(t, 0, len(mockUserStore.DeleteCalls()))
 	})
@@ -2255,7 +2255,7 @@ func TestDetector_ApprovedUsers(t *testing.T) {
 		assert.Equal(t, false, isSpam)
 		require.Len(t, info, 1)
 		assert.Equal(t, "pre-approved", info[0].Name)
-		assert.True(t, d.IsApprovedUser("777"))
+		assert.True(t, d.IsApprovedUser("777", ""))
 		assert.Equal(t, 1, len(mockUserStore.WriteCalls()))
 		assert.Equal(t, "777", mockUserStore.WriteCalls()[0].Au.UserID)
 	})
@@ -2272,7 +2272,7 @@ func TestDetector_ApprovedUsers(t *testing.T) {
 		assert.Equal(t, false, isSpam)
 		require.Len(t, info, 1)
 		assert.Equal(t, "pre-approved", info[0].Name)
-		assert.True(t, d.IsApprovedUser("777"))
+		assert.True(t, d.IsApprovedUser("777", ""))
 		assert.Equal(t, 0, len(mockUserStore.WriteCalls()))
 	})
 
@@ -2929,7 +2929,7 @@ func TestDetector_ShortMessageApproval(t *testing.T) {
 		}
 
 		// user should NOT be approved after 3 short messages
-		assert.False(t, d.IsApprovedUser("123"))
+		assert.False(t, d.IsApprovedUser("123", ""))
 
 		// now send a spam message with stopword
 		_, err := d.LoadStopWords(strings.NewReader("spam"))
@@ -2970,14 +2970,14 @@ func TestDetector_ShortMessageApproval(t *testing.T) {
 		}
 
 		// user should NOT be approved yet (need 3 messages)
-		assert.False(t, d.IsApprovedUser("456"))
+		assert.False(t, d.IsApprovedUser("456", ""))
 
 		// send 3rd normal message
 		spam, _ := d.Check(spamcheck.Request{Msg: "another normal message here", UserID: "456"})
 		assert.False(t, spam)
 
 		// user should NOT be approved yet (need count > FirstMessagesCount)
-		assert.False(t, d.IsApprovedUser("456"))
+		assert.False(t, d.IsApprovedUser("456", ""))
 
 		// after 3 messages, user is pre-approved (count >= FirstMessagesCount)
 		// but IsApprovedUser returns false because it checks count > FirstMessagesCount
@@ -2995,7 +2995,7 @@ func TestDetector_ShortMessageApproval(t *testing.T) {
 		assert.Equal(t, 3, actualCount)
 
 		// IsApprovedUser still returns false (3 > 3 is false)
-		assert.False(t, d.IsApprovedUser("456"))
+		assert.False(t, d.IsApprovedUser("456", ""))
 	})
 
 	t.Run("mix of short and normal messages", func(t *testing.T) {
@@ -3005,27 +3005,27 @@ func TestDetector_ShortMessageApproval(t *testing.T) {
 		// short message 1
 		spam, _ := d.Check(spamcheck.Request{Msg: "hi", UserID: "789"})
 		assert.False(t, spam)
-		assert.False(t, d.IsApprovedUser("789"))
+		assert.False(t, d.IsApprovedUser("789", ""))
 
 		// normal message 1
 		spam, _ = d.Check(spamcheck.Request{Msg: "this is a normal message", UserID: "789"})
 		assert.False(t, spam)
-		assert.False(t, d.IsApprovedUser("789"))
+		assert.False(t, d.IsApprovedUser("789", ""))
 
 		// short message 2
 		spam, _ = d.Check(spamcheck.Request{Msg: "ok", UserID: "789"})
 		assert.False(t, spam)
-		assert.False(t, d.IsApprovedUser("789"))
+		assert.False(t, d.IsApprovedUser("789", ""))
 
 		// normal message 2
 		spam, _ = d.Check(spamcheck.Request{Msg: "another normal message here", UserID: "789"})
 		assert.False(t, spam)
-		assert.False(t, d.IsApprovedUser("789"))
+		assert.False(t, d.IsApprovedUser("789", ""))
 
 		// short message 3
 		spam, _ = d.Check(spamcheck.Request{Msg: "yes", UserID: "789"})
 		assert.False(t, spam)
-		assert.False(t, d.IsApprovedUser("789"))
+		assert.False(t, d.IsApprovedUser("789", ""))
 
 		// normal message 3
 		spam, _ = d.Check(spamcheck.Request{Msg: "third normal message finally", UserID: "789"})
@@ -3034,7 +3034,7 @@ func TestDetector_ShortMessageApproval(t *testing.T) {
 		// with the mix of short and normal messages, only the normal ones count
 		// after 3 normal messages, count is 3, user is pre-approved but IsApprovedUser
 		// returns false because it checks count > FirstMessagesCount
-		assert.False(t, d.IsApprovedUser("789"))
+		assert.False(t, d.IsApprovedUser("789", ""))
 	})
 
 	t.Run("short messages with storage", func(t *testing.T) {
@@ -3065,7 +3065,7 @@ func TestDetector_ShortMessageApproval(t *testing.T) {
 		assert.Equal(t, 2, len(mockUserStore.WriteCalls()))
 
 		// user is not approved yet (need > 2)
-		assert.False(t, d.IsApprovedUser("111"))
+		assert.False(t, d.IsApprovedUser("111", ""))
 
 		// after 2 messages, count is 2 which equals FirstMessagesCount
 		// so the 3rd message will be pre-approved and won't update storage
@@ -3073,7 +3073,7 @@ func TestDetector_ShortMessageApproval(t *testing.T) {
 		// storage write is NOT called for pre-approved message
 		assert.Equal(t, 2, len(mockUserStore.WriteCalls()))
 		// IsApprovedUser returns false because count (2) is not > FirstMessagesCount (2)
-		assert.False(t, d.IsApprovedUser("111"))
+		assert.False(t, d.IsApprovedUser("111", ""))
 	})
 }
 

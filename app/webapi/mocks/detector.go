@@ -50,7 +50,7 @@ type DetectorMock struct {
 	GetLuaPluginNamesFunc func() []string
 
 	// RemoveApprovedUserFunc mocks the RemoveApprovedUser method.
-	RemoveApprovedUserFunc func(id string) error
+	RemoveApprovedUserFunc func(id string, chatID string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -74,6 +74,8 @@ type DetectorMock struct {
 		RemoveApprovedUser []struct {
 			// ID is the id argument value.
 			ID string
+			// ChatID is the chatID argument value.
+			ChatID string
 		}
 	}
 	lockAddApprovedUser    sync.RWMutex
@@ -230,19 +232,21 @@ func (mock *DetectorMock) ResetGetLuaPluginNamesCalls() {
 }
 
 // RemoveApprovedUser calls RemoveApprovedUserFunc.
-func (mock *DetectorMock) RemoveApprovedUser(id string) error {
+func (mock *DetectorMock) RemoveApprovedUser(id string, chatID string) error {
 	if mock.RemoveApprovedUserFunc == nil {
 		panic("DetectorMock.RemoveApprovedUserFunc: method is nil but Detector.RemoveApprovedUser was just called")
 	}
 	callInfo := struct {
-		ID string
+		ID     string
+		ChatID string
 	}{
-		ID: id,
+		ID:     id,
+		ChatID: chatID,
 	}
 	mock.lockRemoveApprovedUser.Lock()
 	mock.calls.RemoveApprovedUser = append(mock.calls.RemoveApprovedUser, callInfo)
 	mock.lockRemoveApprovedUser.Unlock()
-	return mock.RemoveApprovedUserFunc(id)
+	return mock.RemoveApprovedUserFunc(id, chatID)
 }
 
 // RemoveApprovedUserCalls gets all the calls that were made to RemoveApprovedUser.
@@ -250,10 +254,12 @@ func (mock *DetectorMock) RemoveApprovedUser(id string) error {
 //
 //	len(mockedDetector.RemoveApprovedUserCalls())
 func (mock *DetectorMock) RemoveApprovedUserCalls() []struct {
-	ID string
+	ID     string
+	ChatID string
 } {
 	var calls []struct {
-		ID string
+		ID     string
+		ChatID string
 	}
 	mock.lockRemoveApprovedUser.RLock()
 	calls = mock.calls.RemoveApprovedUser

@@ -125,7 +125,7 @@ type Detector interface {
 	Check(req spamcheck.Request) (spam bool, cr []spamcheck.Response)
 	ApprovedUsers() []approved.UserInfo
 	AddApprovedUser(user approved.UserInfo) error
-	RemoveApprovedUser(id string) error
+	RemoveApprovedUser(id string, chatID string) error
 	GetLuaPluginNames() []string // Returns the list of available Lua plugin names
 }
 
@@ -504,6 +504,7 @@ func (s *Server) updateApprovedUsersHandler(updFn func(ui approved.UserInfo) err
 		if isHtmxRequest {
 			req.UserID = r.FormValue("user_id")
 			req.UserName = r.FormValue("user_name")
+			req.ChatID = r.FormValue("chat_id")
 		} else {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				w.WriteHeader(http.StatusBadRequest)
@@ -515,6 +516,9 @@ func (s *Server) updateApprovedUsersHandler(updFn func(ui approved.UserInfo) err
 		// try to get userID from request and fallback to userName lookup if it's empty
 		if req.UserID == "" {
 			req.UserID = strconv.FormatInt(s.Locator.UserIDByName(r.Context(), req.UserName), 10)
+		}
+		if req.ChatID == "" {
+			req.ChatID = s.Settings.PrimaryGroup
 		}
 
 		if req.UserID == "" || req.UserID == "0" {
@@ -558,7 +562,7 @@ func (s *Server) updateApprovedUsersHandler(updFn func(ui approved.UserInfo) err
 
 // removeApprovedUser is adopter for updateApprovedUsersHandler updFn
 func (s *Server) removeApprovedUser(req approved.UserInfo) error {
-	if err := s.Detector.RemoveApprovedUser(req.UserID); err != nil {
+	if err := s.Detector.RemoveApprovedUser(req.UserID, req.ChatID); err != nil {
 		return fmt.Errorf("failed to remove approved user %s: %w", req.UserID, err)
 	}
 	return nil
