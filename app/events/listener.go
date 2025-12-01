@@ -127,10 +127,12 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 	}
 
 	if l.AdminGroup != "" {
-		// get chat ID for the admin group
-		if l.adminChatID, getChatErr = l.getChatID(l.AdminGroup); getChatErr != nil {
-			return fmt.Errorf("failed to get chat ID for admin group %q: %w", l.AdminGroup, getChatErr)
+		trimmedAdmin := strings.TrimSpace(strings.TrimPrefix(l.AdminGroup, "@"))
+		adminChatID, err := l.getChatID(trimmedAdmin)
+		if err != nil {
+			return fmt.Errorf("failed to get chat ID for admin group %q: %w", l.AdminGroup, err)
 		}
+		l.adminChatID = adminChatID
 		log.Printf("[INFO] admin chat ID: %d", l.adminChatID)
 	}
 
@@ -787,7 +789,7 @@ func (l *TelegramListener) restrictUser(chatID, userID int64) {
 
 	_, err := l.TbAPI.Request(tbapi.RestrictChatMemberConfig{
 		ChatMemberConfig: tbapi.ChatMemberConfig{UserID: userID, ChatConfig: tbapi.ChatConfig{ChatID: chatID}},
-		Permissions:      tbapi.ChatPermissions{},
+		Permissions:      &tbapi.ChatPermissions{},
 	})
 	if err != nil {
 		log.Printf("[WARN] failed to restrict user %d in chat %d: %v", userID, chatID, err)
@@ -815,7 +817,7 @@ func (l *TelegramListener) restoreUserPermissions(chatID, userID int64) {
 
 	_, err := l.TbAPI.Request(tbapi.RestrictChatMemberConfig{
 		ChatMemberConfig: tbapi.ChatMemberConfig{UserID: userID, ChatConfig: tbapi.ChatConfig{ChatID: chatID}},
-		Permissions:      perms,
+		Permissions:      &perms,
 	})
 	if err != nil {
 		log.Printf("[WARN] failed to restore user permissions for %d in chat %d: %v", userID, chatID, err)
