@@ -226,7 +226,7 @@ func (s *StorageTestSuite) TestApprovedUsers_Delete() {
 				err = au.Write(ctx, user)
 				s.Require().NoError(err)
 
-				err = au.Delete(ctx, user.UserID)
+				err = au.Delete(ctx, user.UserID, "test")
 				s.Require().NoError(err)
 
 				var count int
@@ -339,7 +339,7 @@ func (s *StorageTestSuite) TestApprovedUsers_ContextCancellation() {
 				ctxCanceled, cancel := context.WithCancel(context.Background())
 				cancel()
 
-				err = au.Delete(ctxCanceled, "789")
+				err = au.Delete(ctxCanceled, "789", "test")
 				s.Require().Error(err)
 				s.Contains(err.Error(), "context canceled")
 			})
@@ -391,14 +391,14 @@ func (s *StorageTestSuite) TestApprovedUsers_ErrorCases() {
 
 			s.Run("delete non-existent", func() {
 				clearDB()
-				err := au.Delete(ctx, "non-existent")
+				err := au.Delete(ctx, "non-existent", "test")
 				s.Require().Error(err)
 				s.Contains(err.Error(), "failed to get approved user")
 			})
 
 			s.Run("delete empty id", func() {
 				clearDB()
-				err := au.Delete(ctx, "")
+				err := au.Delete(ctx, "", "test")
 				s.Require().Error(err)
 				s.Equal("user id can't be empty", err.Error())
 			})

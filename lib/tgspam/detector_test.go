@@ -2110,7 +2110,7 @@ func TestDetector_ApprovedUsers(t *testing.T) {
 			return []approved.UserInfo{{UserID: "123"}, {UserID: "456"}}, nil
 		},
 		WriteFunc:  func(_ context.Context, au approved.UserInfo) error { return nil },
-		DeleteFunc: func(_ context.Context, id string) error { return nil },
+		DeleteFunc: func(_ context.Context, id string, chatID string) error { return nil },
 	}
 
 	t.Run("load with storage", func(t *testing.T) {
@@ -3043,7 +3043,7 @@ func TestDetector_ShortMessageApproval(t *testing.T) {
 				return []approved.UserInfo{}, nil
 			},
 			WriteFunc:  func(_ context.Context, au approved.UserInfo) error { return nil },
-			DeleteFunc: func(_ context.Context, id string) error { return nil },
+			DeleteFunc: func(_ context.Context, id string, chatID string) error { return nil },
 		}
 
 		d := NewDetector(Config{MinMsgLen: 10, FirstMessagesCount: 2, FirstMessageOnly: true, MaxAllowedEmoji: -1})

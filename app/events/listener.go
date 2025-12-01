@@ -436,7 +436,7 @@ func (l *TelegramListener) procEvents(update tbapi.Update) error {
 	if resp.DeleteReplyTo && resp.ReplyTo != 0 && !l.Dry && !l.SuperUsers.IsSuper(msg.From.Username, msg.From.ID) && !l.TrainingMode {
 		if _, err := l.TbAPI.Request(tbapi.DeleteMessageConfig{BaseChatMessage: tbapi.BaseChatMessage{
 			MessageID:  resp.ReplyTo,
-			ChatConfig: tbapi.ChatConfig{ChatID: l.chatID},
+			ChatConfig: tbapi.ChatConfig{ChatID: fromChat},
 		}}); err != nil {
 			errs = multierror.Append(errs, fmt.Errorf("failed to delete message %d: %w", resp.ReplyTo, err))
 		}
