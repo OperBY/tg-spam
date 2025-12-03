@@ -650,7 +650,7 @@ func (l *TelegramListener) handleChatJoinRequest(joinRequest *tbapi.ChatJoinRequ
 		return
 	}
 
-	if _, err := l.TbAPI.Request(tbapi.ApproveChatJoinRequestConfig{ChatID: chatID, UserID: joinRequest.From.ID}); err != nil {
+	if _, err := l.TbAPI.Request(tbapi.ApproveChatJoinRequestConfig{ChatConfig: tbapi.ChatConfig{ChatID: chatID}, UserID: joinRequest.From.ID}); err != nil {
 		log.Printf("[WARN] failed to approve join request for %d in chat %d: %v", joinRequest.From.ID, chatID, err)
 	}
 
