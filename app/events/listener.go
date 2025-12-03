@@ -191,6 +191,11 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 				return fmt.Errorf("telegram update chan closed")
 			}
 
+			if update.ChatJoinRequest != nil {
+				l.handleChatJoinRequest(update.ChatJoinRequest)
+				continue
+			}
+
 			if update.ChatMember != nil {
 				l.handleChatMemberUpdate(update.ChatMember)
 				continue
@@ -606,19 +611,50 @@ func (l *TelegramListener) handleChatMemberUpdate(update *tbapi.ChatMemberUpdate
 	oldStatus := strings.ToLower(update.OldChatMember.Status)
 	newStatus := strings.ToLower(update.NewChatMember.Status)
 
-	if !(oldStatus == "left" || oldStatus == "kicked") {
-		return
-	}
-
-	if !(newStatus == "member" || newStatus == "restricted") {
-		return
-	}
-
 	if update.NewChatMember.User == nil || update.NewChatMember.User.IsBot {
 		return
 	}
 
+	if l.CaptchaManager.Active(chatID, update.NewChatMember.User.ID) {
+		return
+	}
+
+	joinedByStatusChange := (oldStatus == "left" || oldStatus == "kicked") && (newStatus == "member" || newStatus == "restricted")
+	joinedWithJoinHints := (newStatus == "member" || newStatus == "restricted") && (update.ViaJoinRequest || update.InviteLink != nil)
+	joinedFromUnknownState := oldStatus == "" && (newStatus == "member" || newStatus == "restricted")
+
+	if !(joinedByStatusChange || joinedWithJoinHints || joinedFromUnknownState) {
+		return
+	}
+
 	l.startCaptchaForUser(chatID, update.NewChatMember.User)
+}
+
+func (l *TelegramListener) handleChatJoinRequest(joinRequest *tbapi.ChatJoinRequest) {
+	if joinRequest == nil {
+		return
+	}
+
+	chatID := joinRequest.Chat.ID
+	if !l.isChatAllowed(chatID) {
+		return
+	}
+
+	l.ensurePrimaryChatID(chatID)
+
+	if joinRequest.From.IsBot {
+		return
+	}
+
+	if l.CaptchaManager.Active(chatID, joinRequest.From.ID) {
+		return
+	}
+
+	if _, err := l.TbAPI.Request(tbapi.ApproveChatJoinRequestConfig{ChatID: chatID, UserID: joinRequest.From.ID}); err != nil {
+		log.Printf("[WARN] failed to approve join request for %d in chat %d: %v", joinRequest.From.ID, chatID, err)
+	}
+
+	l.startCaptchaForUser(chatID, &joinRequest.From)
 }
 
 func (l *TelegramListener) handleNewChatMembers(message *tbapi.Message) {
