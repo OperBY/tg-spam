@@ -1647,7 +1647,7 @@ func TestUserReports_CallbackReportBan(t *testing.T) {
 		}
 
 		mockBot := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(userID int64) error { return nil },
+			RemoveApprovedUserFunc: func(userID int64, chatID int64) error { return nil },
 			UpdateSpamFunc:         func(msg string) error { return nil },
 		}
 
@@ -2175,7 +2175,7 @@ func TestUserReports_HandleReportCallback_SecurityValidation(t *testing.T) {
 
 	t.Run("R+ callback from non-admin chat should be rejected", func(t *testing.T) {
 		mockBot := &mocks.BotMock{
-			RemoveApprovedUserFunc: func(userID int64) error {
+			RemoveApprovedUserFunc: func(userID int64, chatID int64) error {
 				t.Fatal("should not call RemoveApprovedUser for unauthorized callback")
 				return nil
 			},
