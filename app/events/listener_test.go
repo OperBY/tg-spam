@@ -55,7 +55,7 @@ func TestTelegramListener_Do(t *testing.T) {
 		SpamLogger: mockLogger,
 		TbAPI:      mockAPI,
 		Bot:        botMock,
-		Group:      "gr",
+		Group:      []string{"gr"},
 		AdminGroup: "987654321",
 		StartupMsg: "startup",
 		Locator:    locator,
@@ -93,6 +93,17 @@ func TestTelegramListener_Do(t *testing.T) {
 	assert.Equal(t, "text 123", botMock.OnMessageCalls()[0].Msg.Text)
 	assert.Equal(t, "user", botMock.OnMessageCalls()[0].Msg.From.Username)
 	assert.False(t, botMock.OnMessageCalls()[0].CheckOnly)
+
+	require.Equal(t, 1, len(mockAPI.GetUpdatesChanCalls()))
+	assert.Equal(t, 60, mockAPI.GetUpdatesChanCalls()[0].Config.Timeout)
+	assert.ElementsMatch(t, []string{
+		"message",
+		"edited_message",
+		"callback_query",
+		"chat_member",
+		"my_chat_member",
+		"chat_join_request",
+	}, mockAPI.GetUpdatesChanCalls()[0].Config.AllowedUpdates)
 
 }
 
@@ -136,7 +147,7 @@ func TestTelegramListener_DoWithBotBan(t *testing.T) {
 		TbAPI:      mockAPI,
 		Bot:        botMock,
 		SuperUsers: SuperUsers{"admin"},
-		Group:      "gr",
+		Group:      []string{"gr"},
 		Locator:    locator,
 	}
 
@@ -368,7 +379,7 @@ func TestTelegramListener_DoWithBotSoftBan(t *testing.T) {
 		TbAPI:       mockAPI,
 		Bot:         botMock,
 		SuperUsers:  SuperUsers{"admin"},
-		Group:       "gr",
+		Group:       []string{"gr"},
 		Locator:     locator,
 		SoftBanMode: true,
 	}
@@ -437,7 +448,7 @@ func TestTelegramListener_DoWithTraining(t *testing.T) {
 		SpamLogger:   mockLogger,
 		TbAPI:        mockAPI,
 		Bot:          botMock,
-		Group:        "gr",
+		Group:        []string{"gr"},
 		Locator:      locator,
 		TrainingMode: true,
 	}
@@ -509,7 +520,7 @@ func TestTelegramListener_DoDeleteMessages(t *testing.T) {
 		SpamLogger: mockLogger,
 		TbAPI:      mockAPI,
 		Bot:        b,
-		Group:      "gr",
+		Group:      []string{"gr"},
 		Locator:    locator,
 	}
 
@@ -602,7 +613,7 @@ func TestTelegramListener_DoWithExtraDeleteIDs(t *testing.T) {
 		SpamLogger: mockLogger,
 		TbAPI:      mockAPI,
 		Bot:        b,
-		Group:      "gr",
+		Group:      []string{"gr"},
 		Locator:    locator,
 	}
 
@@ -688,7 +699,7 @@ func TestTelegramListener_DoWithExtraDeleteIDs_SuperUser(t *testing.T) {
 		SpamLogger: mockLogger,
 		TbAPI:      mockAPI,
 		Bot:        b,
-		Group:      "gr",
+		Group:      []string{"gr"},
 		Locator:    locator,
 		SuperUsers: SuperUsers{"1"}, // user ID 1 is superuser
 	}
@@ -763,7 +774,7 @@ func TestTelegramListener_DoWithForwarded(t *testing.T) {
 		SpamLogger: mockLogger,
 		TbAPI:      mockAPI,
 		Bot:        b,
-		Group:      "gr",
+		Group:      []string{"gr"},
 		AdminGroup: "123",
 		StartupMsg: "startup",
 		SuperUsers: SuperUsers{"umputun"},
@@ -852,7 +863,7 @@ func TestTelegramListener_DoWithDirectSpamReport(t *testing.T) {
 		SpamLogger: mockLogger,
 		TbAPI:      mockAPI,
 		Bot:        botMock,
-		Group:      "gr",
+		Group:      []string{"gr"},
 		StartupMsg: "startup",
 		SuperUsers: SuperUsers{"superuser1"}, // include a test superuser
 		Locator:    locator,
@@ -945,7 +956,7 @@ func TestTelegramListener_DoWithDirectWarnReport(t *testing.T) {
 		SpamLogger: mockLogger,
 		TbAPI:      mockAPI,
 		Bot:        b,
-		Group:      "gr",
+		Group:      []string{"gr"},
 		StartupMsg: "startup",
 		SuperUsers: SuperUsers{"superuser1"}, // include a test superuser
 		Locator:    locator,
@@ -1026,7 +1037,7 @@ func TestTelegramListener_DoWithAdminUnBan(t *testing.T) {
 		TbAPI:      mockAPI,
 		Bot:        b,
 		SuperUsers: SuperUsers{"admin"},
-		Group:      "gr",
+		Group:      []string{"gr"},
 		Locator:    locator,
 		AdminGroup: "123",
 	}
@@ -1099,7 +1110,7 @@ func TestTelegramListener_DoWithAdminSoftUnBan(t *testing.T) {
 		TbAPI:       mockAPI,
 		Bot:         b,
 		SuperUsers:  SuperUsers{"admin"},
-		Group:       "gr",
+		Group:       []string{"gr"},
 		Locator:     locator,
 		AdminGroup:  "123",
 		SoftBanMode: true,
@@ -1175,7 +1186,7 @@ func TestTelegramListener_DoWithAdminSoftUnBanEmptyText(t *testing.T) {
 		TbAPI:       mockAPI,
 		Bot:         b,
 		SuperUsers:  SuperUsers{"admin"},
-		Group:       "gr",
+		Group:       []string{"gr"},
 		Locator:     locator,
 		AdminGroup:  "123",
 		SoftBanMode: true,
@@ -1250,7 +1261,7 @@ func TestTelegramListener_DoWithAdminUnBan_Training(t *testing.T) {
 		TbAPI:        mockAPI,
 		Bot:          b,
 		SuperUsers:   SuperUsers{"admin"},
-		Group:        "gr",
+		Group:        []string{"gr"},
 		Locator:      locator,
 		AdminGroup:   "123",
 		TrainingMode: true,
@@ -1322,7 +1333,7 @@ func TestTelegramListener_DoWithAdminUnBanConfirmation(t *testing.T) {
 		TbAPI:      mockAPI,
 		Bot:        b,
 		SuperUsers: SuperUsers{"admin"},
-		Group:      "gr",
+		Group:      []string{"gr"},
 		Locator:    locator,
 		AdminGroup: "123",
 	}
@@ -1391,7 +1402,7 @@ func TestTelegramListener_DoWithAdminUnbanDecline(t *testing.T) {
 		TbAPI:      mockAPI,
 		Bot:        b,
 		SuperUsers: SuperUsers{"admin"},
-		Group:      "gr",
+		Group:      []string{"gr"},
 		Locator:    locator,
 		AdminGroup: "123",
 	}
@@ -1462,7 +1473,7 @@ func TestTelegramListener_DoWithAdminBanConfirmedTraining(t *testing.T) {
 		TbAPI:        mockAPI,
 		Bot:          b,
 		SuperUsers:   SuperUsers{"admin"},
-		Group:        "gr",
+		Group:        []string{"gr"},
 		Locator:      locator,
 		AdminGroup:   "123",
 		TrainingMode: true,
@@ -1533,7 +1544,7 @@ func TestTelegramListener_DoWithAdminShowInfo(t *testing.T) {
 		TbAPI:      mockAPI,
 		Bot:        b,
 		SuperUsers: SuperUsers{"admin"},
-		Group:      "gr",
+		Group:      []string{"gr"},
 		Locator:    locator,
 		AdminGroup: "123",
 	}
@@ -1587,6 +1598,9 @@ func TestTelegramListener_DoWithProcNewChatMemberMessage(t *testing.T) {
 		GetChatAdministratorsFunc: func(config tbapi.ChatAdministratorsConfig) ([]tbapi.ChatMember, error) {
 			return nil, nil
 		},
+		RequestFunc: func(c tbapi.Chattable) (*tbapi.APIResponse, error) {
+			return &tbapi.APIResponse{Ok: true}, nil
+		},
 	}
 	b := &mocks.BotMock{}
 
@@ -1597,7 +1611,7 @@ func TestTelegramListener_DoWithProcNewChatMemberMessage(t *testing.T) {
 		TbAPI:      mockAPI,
 		Bot:        b,
 		SuperUsers: SuperUsers{"admin"},
-		Group:      "gr",
+		Group:      []string{"gr"},
 		Locator:    locator,
 	}
 
@@ -1654,7 +1668,7 @@ func TestTelegramListener_DoWithProcLeftChatMemberMessage(t *testing.T) {
 		TbAPI:               mockAPI,
 		Bot:                 b,
 		SuperUsers:          SuperUsers{"admin"},
-		Group:               "gr",
+		Group:               []string{"gr"},
 		Locator:             locator,
 		SuppressJoinMessage: true,
 	}
@@ -2366,7 +2380,7 @@ func TestTelegramListener_ForwardedGiveaway(t *testing.T) {
 		SpamLogger: mockLogger,
 		TbAPI:      mockAPI,
 		Bot:        botMock,
-		Group:      "gr",
+		Group:      []string{"gr"},
 		AdminGroup: "987654321",
 		Locator:    locator,
 		SuperUsers: SuperUsers{"super"},
@@ -2424,7 +2438,7 @@ func TestTelegramListener_DeleteJoinMessages(t *testing.T) {
 		TbAPI:              mockAPI,
 		Bot:                b,
 		SuperUsers:         SuperUsers{"admin"},
-		Group:              "gr",
+		Group:              []string{"gr"},
 		Locator:            locator,
 		DeleteJoinMessages: true,
 	}
@@ -2484,7 +2498,7 @@ func TestTelegramListener_DeleteLeaveMessages(t *testing.T) {
 		TbAPI:               mockAPI,
 		Bot:                 b,
 		SuperUsers:          SuperUsers{"admin"},
-		Group:               "gr",
+		Group:               []string{"gr"},
 		Locator:             locator,
 		SuppressJoinMessage: true,
 		DeleteLeaveMessages: true,
@@ -2578,7 +2592,7 @@ func TestTelegramListener_NoDeleteWhenFlagsDisabled(t *testing.T) {
 		TbAPI:               mockAPI,
 		Bot:                 b,
 		SuperUsers:          SuperUsers{"admin"},
-		Group:               "gr",
+		Group:               []string{"gr"},
 		Locator:             locator,
 		DeleteJoinMessages:  false,
 		DeleteLeaveMessages: false,
@@ -2650,7 +2664,7 @@ func TestTelegramListener_CallbackRouting(t *testing.T) {
 			TbAPI:      mockAPI,
 			Bot:        botMock,
 			SuperUsers: SuperUsers{"admin"},
-			Group:      "123",
+			Group:      []string{"123"},
 			AdminGroup: "456",
 			Locator:    locator,
 			ReportConfig: ReportConfig{
@@ -2709,7 +2723,7 @@ func TestTelegramListener_CallbackRouting(t *testing.T) {
 			TbAPI:      mockAPI,
 			Bot:        botMock,
 			SuperUsers: SuperUsers{"admin"},
-			Group:      "123",
+			Group:      []string{"123"},
 			AdminGroup: "456",
 			Locator:    locator,
 		}
@@ -2779,7 +2793,7 @@ func TestTelegramListener_CallbackRouting(t *testing.T) {
 			TbAPI:      mockAPI,
 			Bot:        &mocks.BotMock{},
 			SuperUsers: SuperUsers{"admin"},
-			Group:      "123",
+			Group:      []string{"123"},
 			AdminGroup: "456",
 			Locator:    locator,
 			ReportConfig: ReportConfig{
@@ -2840,7 +2854,7 @@ func TestTelegramListener_CallbackRouting(t *testing.T) {
 			TbAPI:      mockAPI,
 			Bot:        botMock,
 			SuperUsers: SuperUsers{"admin"},
-			Group:      "123",
+			Group:      []string{"123"},
 			AdminGroup: "456",
 			Locator:    locator,
 		}
@@ -2910,7 +2924,7 @@ func TestTelegramListener_CallbackRouting(t *testing.T) {
 			TbAPI:      mockAPI,
 			Bot:        botMock,
 			SuperUsers: SuperUsers{"admin"},
-			Group:      "123",
+			Group:      []string{"123"},
 			AdminGroup: "456",
 			Locator:    locator,
 		}
@@ -2972,7 +2986,7 @@ func TestTelegramListener_AnonymousAdminPostSkipsSpamCheck(t *testing.T) {
 			SpamLogger: mockLogger,
 			TbAPI:      mockAPI,
 			Bot:        botMock,
-			Group:      "-1001688024850",
+			Group:      []string{"-1001688024850"},
 			Locator:    locator,
 		}
 
@@ -3031,7 +3045,7 @@ func TestTelegramListener_AnonymousAdminPostSkipsSpamCheck(t *testing.T) {
 			SpamLogger: mockLogger,
 			TbAPI:      mockAPI,
 			Bot:        botMock,
-			Group:      "-1001688024850",
+			Group:      []string{"-1001688024850"},
 			Locator:    locator,
 		}
 
@@ -3089,7 +3103,7 @@ func TestTelegramListener_AnonymousAdminPostSkipsSpamCheck(t *testing.T) {
 			SpamLogger: mockLogger,
 			TbAPI:      mockAPI,
 			Bot:        botMock,
-			Group:      "-1001688024850",
+			Group:      []string{"-1001688024850"},
 			Locator:    locator,
 		}
 
@@ -3136,7 +3150,7 @@ func TestTelegramListener_AnonymousAdminPostSkipsSpamCheck(t *testing.T) {
 			SpamLogger: mockLogger,
 			TbAPI:      mockAPI,
 			Bot:        botMock,
-			Group:      "-1001688024850",
+			Group:      []string{"-1001688024850"},
 			TestingIDs: []int64{testingChatID},
 			Locator:    locator,
 		}

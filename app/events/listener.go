@@ -178,6 +178,14 @@ func (l *TelegramListener) Do(ctx context.Context) error {
 
 	u := tbapi.NewUpdate(0)
 	u.Timeout = 60
+	u.AllowedUpdates = []string{
+		"message",
+		"edited_message",
+		"callback_query",
+		"chat_member",
+		"my_chat_member",
+		"chat_join_request",
+	}
 
 	updates := l.TbAPI.GetUpdatesChan(u)
 	log.Printf("[DEBUG] start listening for updates")
